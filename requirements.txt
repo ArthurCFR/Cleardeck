@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-docx
+python-pptx
+torch
+transformers
+python-multipart
+python-dotenv
+imagehash
+Pillow
