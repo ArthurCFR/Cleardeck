@@ -235,6 +235,7 @@ def anonymize(
     project_id: str | None,
     project_entities: dict[str, list[str]] | None = None,
     confirmed_ai: list[dict] | None = None,
+    auto_confirm_all: bool = False,
 ) -> tuple[bytes, dict, str]:
     """Run the full anonymization pipeline.
 
@@ -265,11 +266,14 @@ def anonymize(
 
     ai_detections = detect_entities(all_text, known_entities=set(all_project_entities))
 
-    # Auto-confirm high-confidence detections (>= 0.9), low-confidence need user triage
+    # By default, auto-confirm high-confidence detections (>= 0.9). In batch
+    # mode we accept everything the detector returned (still bounded by the
+    # detector's own MIN_CONFIDENCE threshold) to skip per-file triage.
+    threshold = 0.0 if auto_confirm_all else 0.9
     auto_ai = [
         {"entity": d["entity"], "category": d["category"]}
         for d in ai_detections
-        if d["confidence"] >= 0.9
+        if d["confidence"] >= threshold
     ]
 
     # Email detection — added as confirmed entities with category "mails"

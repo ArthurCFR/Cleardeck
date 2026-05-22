@@ -188,12 +188,6 @@
           <h3>Lot de <span id="batch-file-count">0</span> documents</h3>
           <p class="hint">Mode rapide : toutes les entites detectees seront anonymisees automatiquement (pas de triage individuel).</p>
           <ul id="batch-file-list" style="max-height:240px;overflow-y:auto;margin:12px 0;padding:8px 12px;background:#f9fafb;border-radius:6px;list-style:none;font-size:0.85rem;"></ul>
-          <div id="batch-progress" style="display:none;margin:16px 0;">
-            <div style="background:#e5e7eb;border-radius:6px;height:10px;overflow:hidden;">
-              <div id="batch-progress-bar" style="background:#3b82f6;height:100%;width:0%;transition:width 0.3s;"></div>
-            </div>
-            <p id="batch-progress-text" style="margin:8px 0 0;font-size:0.85rem;color:#4b5563;text-align:center;">Initialisation...</p>
-          </div>
           <div id="batch-result" style="display:none;margin:16px 0;padding:12px;background:#dcfce7;border-radius:6px;color:#166534;">
             <p style="margin:0 0 8px;font-weight:600;">Lot termine.</p>
             <p id="batch-result-summary" style="margin:0 0 12px;font-size:0.85rem;"></p>
@@ -328,6 +322,12 @@
       </div>
     </div>
     <p id="loading-text">Traitement en cours...</p>
+    <div id="loading-batch-progress" style="display:none;width:min(420px,80vw);margin-top:16px;">
+      <div style="background:rgba(255,255,255,0.25);border-radius:6px;height:8px;overflow:hidden;">
+        <div id="loading-batch-bar" style="background:#ffffff;height:100%;width:0%;transition:width 0.3s;"></div>
+      </div>
+      <p id="loading-batch-text" style="margin:8px 0 0;font-size:0.85rem;text-align:center;opacity:0.85;"></p>
+    </div>
   </div>
 
   <script src="/static/app.js?v=2"></script>

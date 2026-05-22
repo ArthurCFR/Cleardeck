@@ -15,9 +15,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from ..engine.anonymizer import preview, anonymize
-from ..engine.ai_detector import detect_entities
 from ..engine.image_handler import preview_images, apply_image_anonymization
-from ..engine import docx_handler, pptx_handler
 
 router = APIRouter(prefix="/api", tags=["anonymize"])
 
@@ -217,11 +215,6 @@ def _run_batch_job(
     job = _batch_jobs[job_id]
     zip_buffer = io.BytesIO()
 
-    proj_ents_flat: list[str] = []
-    if project_entities:
-        for ents in project_entities.values():
-            proj_ents_flat.extend(ents)
-
     try:
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for filename, file_bytes in files:
@@ -239,27 +232,16 @@ def _run_batch_job(
                             file_bytes, file_type, logo_hashes, []
                         )
 
-                    if file_type == "docx":
-                        _, blocks = docx_handler.extract_text_blocks(file_bytes)
-                    else:
-                        _, blocks = pptx_handler.extract_text_blocks(file_bytes)
-                    all_text = "\n".join(b.text for b in blocks)
-
-                    detections = detect_entities(
-                        all_text, known_entities=set(proj_ents_flat)
-                    )
-                    all_confirmed = [
-                        {"entity": d["entity"], "category": d["category"]}
-                        for d in detections
-                    ]
-
+                    # auto_confirm_all=True: detection + anonymisation in a
+                    # single pass — avoids the double NER work that made the
+                    # batch 2x slower than running each doc individually.
                     result_bytes, mapping, anon_name = anonymize(
                         file_bytes=file_bytes,
                         file_type=file_type,
                         filename=filename,
                         project_id=project_id,
                         project_entities=project_entities,
-                        confirmed_ai=all_confirmed,
+                        auto_confirm_all=True,
                     )
 
                     stem = filename.rsplit(".", 1)[0]

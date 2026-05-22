@@ -1187,7 +1187,6 @@ function enterBatchMode() {
   hide('#anon-preview-actions');
   hide('#preview-panel');
   hide('#batch-result');
-  hide('#batch-progress');
   show('#batch-panel');
 
   $('#batch-file-count').textContent = state.batchFiles.length;
@@ -1216,14 +1215,34 @@ function exitBatchMode() {
 
 $('#btn-batch-cancel').addEventListener('click', exitBatchMode);
 
+function _showBatchLoadingOverlay(total) {
+  showLoading(`Anonymisation du lot — 0 / ${total}`);
+  show('#loading-batch-progress');
+  $('#loading-batch-bar').style.width = '0%';
+  $('#loading-batch-text').textContent = 'Préparation…';
+}
+
+function _updateBatchLoadingOverlay(done, total, currentFile) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  $('#loading-text').textContent = `Anonymisation du lot — ${done} / ${total}`;
+  $('#loading-batch-bar').style.width = `${pct}%`;
+  $('#loading-batch-text').textContent = currentFile
+    ? `Document en cours : ${currentFile}`
+    : '';
+}
+
+function _hideBatchLoadingOverlay() {
+  hide('#loading-batch-progress');
+  hideLoading();
+}
+
 $('#btn-batch-start').addEventListener('click', async () => {
   if (!state.batchFiles.length) return;
   const btn = $('#btn-batch-start');
   btn.disabled = true;
-  btn.textContent = 'Envoi des fichiers...';
-  show('#batch-progress');
-  $('#batch-progress-bar').style.width = '0%';
-  $('#batch-progress-text').textContent = 'Envoi des fichiers...';
+  btn.textContent = 'Anonymisation en cours...';
+
+  _showBatchLoadingOverlay(state.batchFiles.length);
 
   const form = new FormData();
   state.batchFiles.forEach(f => form.append('files', f));
@@ -1237,13 +1256,12 @@ $('#btn-batch-start').addEventListener('click', async () => {
     }
     const { job_id, total } = await res.json();
     state.batchJobId = job_id;
-    btn.textContent = 'Anonymisation en cours...';
     await pollBatchStatus(job_id, total);
   } catch (e) {
+    _hideBatchLoadingOverlay();
     alert(`Erreur: ${e.message}`);
     btn.disabled = false;
     btn.textContent = "Lancer l'anonymisation du lot";
-    hide('#batch-progress');
   }
 });
 
@@ -1257,13 +1275,10 @@ async function pollBatchStatus(jobId, total) {
       await new Promise(r => setTimeout(r, 1500));
       continue;
     }
-    const pct = total > 0 ? Math.round((data.done / total) * 100) : 0;
-    $('#batch-progress-bar').style.width = `${pct}%`;
-    const cur = data.current_file ? ` — ${data.current_file}` : '';
-    $('#batch-progress-text').textContent = `${data.done} / ${total}${cur}`;
+    _updateBatchLoadingOverlay(data.done, total, data.current_file);
 
     if (data.status === 'completed') {
-      hide('#batch-progress');
+      _hideBatchLoadingOverlay();
       show('#batch-result');
       const errCount = (data.file_errors || []).length;
       const skipCount = (data.skipped || []).length;
@@ -1275,8 +1290,8 @@ async function pollBatchStatus(jobId, total) {
       return;
     }
     if (data.status === 'failed') {
+      _hideBatchLoadingOverlay();
       alert(`Anonymisation echouee: ${data.error}`);
-      hide('#batch-progress');
       $('#btn-batch-start').disabled = false;
       $('#btn-batch-start').textContent = "Lancer l'anonymisation du lot";
       return;
