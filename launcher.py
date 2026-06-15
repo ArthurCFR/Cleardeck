@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -122,36 +123,66 @@ def _wait_for_port(host: str, port: int, timeout: float = 180.0) -> bool:
 
 
 def _open_url(url: str) -> bool:
-    """Open URL in the default browser. Tries multiple strategies because
-    Python's webbrowser.open() silently returns False in PyInstaller
-    --noconsole bundles on Windows (it can't spawn subprocesses without
-    a console handle)."""
-    # Strategy 1: os.startfile (Windows-only) — uses ShellExecuteEx directly,
-    # designed for windowless apps. Most reliable in PyInstaller bundles.
+    """Open URL in the default browser. Tries multiple strategies and logs
+    which one succeeded, because the obvious choices (webbrowser.open,
+    os.startfile) silently fail in PyInstaller --noconsole bundles on
+    Windows 11 when the default browser is a UWP app like Edge."""
     if sys.platform == "win32":
+        # Strategy 1: cmd /c start — the canonical Windows way, works for
+        # both classic Win32 browsers and UWP/Store apps (Edge), and the
+        # CREATE_NO_WINDOW flag keeps the cmd console hidden.
+        try:
+            CREATE_NO_WINDOW = 0x08000000
+            subprocess.Popen(
+                ["cmd", "/c", "start", "", url],
+                creationflags=CREATE_NO_WINDOW,
+                close_fds=True,
+            )
+            logging.info("Browser launch attempted via cmd start")
+            return True
+        except Exception as e:
+            logging.warning("cmd start failed: %s", e)
+
+        # Strategy 2: rundll32 url.dll — bypasses shell associations.
+        try:
+            subprocess.Popen(
+                ["rundll32.exe", "url.dll,FileProtocolHandler", url],
+                creationflags=0x08000000,
+                close_fds=True,
+            )
+            logging.info("Browser launch attempted via rundll32")
+            return True
+        except Exception as e:
+            logging.warning("rundll32 failed: %s", e)
+
+        # Strategy 3: direct ShellExecuteW (Win32 API).
+        try:
+            import ctypes
+            rc = ctypes.windll.shell32.ShellExecuteW(None, "open", url, None, None, 1)
+            if rc > 32:
+                logging.info("Browser launch attempted via ShellExecuteW")
+                return True
+            logging.warning("ShellExecuteW returned %s", rc)
+        except Exception as e:
+            logging.warning("ShellExecuteW failed: %s", e)
+
+        # Strategy 4: os.startfile (works for classic browsers).
         try:
             os.startfile(url)
+            logging.info("Browser launch attempted via os.startfile")
             return True
         except OSError as e:
             logging.warning("os.startfile failed: %s", e)
-    # Strategy 2: webbrowser module — works on Linux/macOS, sometimes Windows.
+
+    # Non-Windows or all Windows strategies failed: try webbrowser.
     try:
         if webbrowser.open(url):
+            logging.info("Browser launch attempted via webbrowser.open")
             return True
         logging.warning("webbrowser.open returned False")
     except Exception as e:
         logging.warning("webbrowser.open raised: %s", e)
-    # Strategy 3: ctypes ShellExecuteW (Windows last resort).
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            rc = ctypes.windll.shell32.ShellExecuteW(None, "open", url, None, None, 1)
-            # ShellExecuteW returns > 32 on success.
-            if rc > 32:
-                return True
-            logging.error("ShellExecuteW returned %s", rc)
-        except Exception as e:
-            logging.error("ShellExecuteW failed: %s", e)
+
     return False
 
 
