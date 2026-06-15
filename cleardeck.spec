@@ -105,14 +105,6 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # transformers >= 4.46 walks the filesystem with os.scandir() at import
-    # time to discover its lazy submodules. With the default PYZ archive,
-    # those files don't exist on disk → FileNotFoundError. Forcing 'pyz+py'
-    # makes PyInstaller drop the source .py files next to the launcher so
-    # the scan succeeds.
-    module_collection_mode={
-        "transformers": "pyz+py",
-    },
     excludes=[
         # Cut down on bundle size: drop optional / unused dev tooling.
         "tkinter",
@@ -127,7 +119,13 @@ a = Analysis(
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,
+    # transformers (and other lazy-loading packages) walk the filesystem at
+    # import time via os.scandir(). With the default PYZ archive,
+    # __init__.pyc files are NOT physically on disk and the scan fails with
+    # FileNotFoundError. noarchive=True forces every .pyc to live on disk
+    # in its proper package hierarchy, which matches what __file__ resolves
+    # to and lets the scan succeed.
+    noarchive=True,
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
