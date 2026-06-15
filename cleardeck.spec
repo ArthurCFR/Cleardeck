@@ -33,6 +33,11 @@ huggingface_hub_datas, huggingface_hub_binaries, huggingface_hub_hidden = collec
 numpy_datas, numpy_binaries, numpy_hidden = collect_all("numpy")
 pil_datas, pil_binaries, pil_hidden = collect_all("PIL")
 
+# tiktoken: transformers 5.x probes for it during tokenizer auto-discovery
+# even when the target model uses sentencepiece (CamemBERT). The probe
+# raises an ImportError that surfaces as "tiktoken is required" in the UI.
+tiktoken_datas, tiktoken_binaries, tiktoken_hidden = collect_all("tiktoken")
+
 # python-docx and python-pptx ship XML templates as package data.
 docx_datas = collect_data_files("docx")
 pptx_datas = collect_data_files("pptx")
@@ -44,6 +49,7 @@ datas = (
     + huggingface_hub_datas
     + numpy_datas
     + pil_datas
+    + tiktoken_datas
     + docx_datas
     + pptx_datas
     + [
@@ -59,6 +65,7 @@ binaries = (
     + huggingface_hub_binaries
     + numpy_binaries
     + pil_binaries
+    + tiktoken_binaries
 )
 
 hiddenimports = (
@@ -68,6 +75,7 @@ hiddenimports = (
     + huggingface_hub_hidden
     + numpy_hidden
     + pil_hidden
+    + tiktoken_hidden
     + [
         "backend.main",
         "backend.config",

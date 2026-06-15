@@ -109,7 +109,7 @@ def _setup_logging(logs_dir: Path) -> None:
     sys.stderr = _StreamToLogger(logging.ERROR)
 
 
-def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> bool:
+def _wait_for_port(host: str, port: int, timeout: float = 180.0) -> bool:
     """Block until the TCP port accepts connections, or timeout."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -123,7 +123,7 @@ def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> bool:
 
 def _open_browser_when_ready() -> None:
     """Run in a thread: wait for the server, then open the browser."""
-    if _wait_for_port(HOST, PORT, timeout=60.0):
+    if _wait_for_port(HOST, PORT, timeout=180.0):
         logging.info("Server reachable, opening browser at %s", URL)
         try:
             webbrowser.open(URL)
@@ -149,11 +149,16 @@ def main() -> int:
     logging.info("%s launcher starting", APP_NAME)
     logging.info("User data dir: %s", _user_data_dir())
 
-    threading.Thread(target=_open_browser_when_ready, daemon=True).start()
-
-    # Defer heavy imports so HF_HOME above is honoured.
+    # Defer heavy imports so HF_HOME above is honoured. In a PyInstaller
+    # bundle these can take 30-90 seconds the first time (transformers walks
+    # its module tree on disk), so we start the browser thread AFTER imports
+    # are done — otherwise the wait_for_port timeout would fire while imports
+    # are still running and the browser would never open.
     import uvicorn
     from backend.main import app
+
+    logging.info("Imports complete, starting server")
+    threading.Thread(target=_open_browser_when_ready, daemon=True).start()
 
     try:
         # log_config=None: skip uvicorn's stdout-aware ColourizedFormatter

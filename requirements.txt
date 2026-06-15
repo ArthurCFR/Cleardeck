@@ -4,6 +4,7 @@ python-docx
 python-pptx
 torch
 transformers
+tiktoken
 python-multipart
 python-dotenv
 imagehash
