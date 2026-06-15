@@ -6,6 +6,7 @@ torch
 transformers
 tiktoken
 sentencepiece
+protobuf
 python-multipart
 python-dotenv
 imagehash

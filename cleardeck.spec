@@ -39,6 +39,10 @@ pil_datas, pil_binaries, pil_hidden = collect_all("PIL")
 # because its plugin module tiktoken_ext isn't auto-discovered by
 # PyInstaller. Both libs need to be bundled explicitly.
 sentencepiece_datas, sentencepiece_binaries, sentencepiece_hidden = collect_all("sentencepiece")
+# protobuf: sentencepiece.bpe.model is a protobuf-encoded blob. The
+# SentencePieceExtractor in transformers parses it via google.protobuf,
+# which is its own Python package (PyPI name 'protobuf').
+protobuf_datas, protobuf_binaries, protobuf_hidden = collect_all("google.protobuf")
 tiktoken_datas, tiktoken_binaries, tiktoken_hidden = collect_all("tiktoken")
 # tiktoken_ext is a namespace package that ships the encoding plugins
 # (cl100k_base, etc.). It's not picked up by collect_all('tiktoken') and
@@ -57,6 +61,7 @@ datas = (
     + numpy_datas
     + pil_datas
     + sentencepiece_datas
+    + protobuf_datas
     + tiktoken_datas
     + docx_datas
     + pptx_datas
@@ -74,6 +79,7 @@ binaries = (
     + numpy_binaries
     + pil_binaries
     + sentencepiece_binaries
+    + protobuf_binaries
     + tiktoken_binaries
 )
 
@@ -85,6 +91,7 @@ hiddenimports = (
     + numpy_hidden
     + pil_hidden
     + sentencepiece_hidden
+    + protobuf_hidden
     + tiktoken_hidden
     + tiktoken_ext_hidden
     + [
