@@ -121,14 +121,49 @@ def _wait_for_port(host: str, port: int, timeout: float = 180.0) -> bool:
     return False
 
 
+def _open_url(url: str) -> bool:
+    """Open URL in the default browser. Tries multiple strategies because
+    Python's webbrowser.open() silently returns False in PyInstaller
+    --noconsole bundles on Windows (it can't spawn subprocesses without
+    a console handle)."""
+    # Strategy 1: os.startfile (Windows-only) — uses ShellExecuteEx directly,
+    # designed for windowless apps. Most reliable in PyInstaller bundles.
+    if sys.platform == "win32":
+        try:
+            os.startfile(url)
+            return True
+        except OSError as e:
+            logging.warning("os.startfile failed: %s", e)
+    # Strategy 2: webbrowser module — works on Linux/macOS, sometimes Windows.
+    try:
+        if webbrowser.open(url):
+            return True
+        logging.warning("webbrowser.open returned False")
+    except Exception as e:
+        logging.warning("webbrowser.open raised: %s", e)
+    # Strategy 3: ctypes ShellExecuteW (Windows last resort).
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            rc = ctypes.windll.shell32.ShellExecuteW(None, "open", url, None, None, 1)
+            # ShellExecuteW returns > 32 on success.
+            if rc > 32:
+                return True
+            logging.error("ShellExecuteW returned %s", rc)
+        except Exception as e:
+            logging.error("ShellExecuteW failed: %s", e)
+    return False
+
+
 def _open_browser_when_ready() -> None:
     """Run in a thread: wait for the server, then open the browser."""
     if _wait_for_port(HOST, PORT, timeout=180.0):
         logging.info("Server reachable, opening browser at %s", URL)
-        try:
-            webbrowser.open(URL)
-        except Exception as e:
-            logging.error("Failed to open browser: %s", e)
+        if not _open_url(URL):
+            logging.error(
+                "Could not open the browser automatically. "
+                "Open %s manually in your browser.", URL,
+            )
     else:
         logging.error("Server did not start within timeout, browser not opened")
 

@@ -33,6 +33,23 @@ huggingface_hub_datas, huggingface_hub_binaries, huggingface_hub_hidden = collec
 numpy_datas, numpy_binaries, numpy_hidden = collect_all("numpy")
 pil_datas, pil_binaries, pil_hidden = collect_all("PIL")
 
+# Transitive runtime deps of transformers/tokenizers that pip installs but
+# PyInstaller's auto-discovery can miss (data files or compiled extensions).
+# Source: transformers 5.x install_requires.
+_extra_packages = ["regex", "safetensors", "packaging", "yaml", "tqdm", "typer"]
+_extra_datas: list = []
+_extra_binaries: list = []
+_extra_hidden: list = []
+for _pkg in _extra_packages:
+    try:
+        _d, _b, _h = collect_all(_pkg)
+        _extra_datas += _d
+        _extra_binaries += _b
+        _extra_hidden += _h
+    except Exception:
+        # Package not installed — skip silently. Some deps are optional.
+        pass
+
 # sentencepiece: the actual tokenizer used by CamemBERT-NER. transformers
 # tries to read the sentencepiece.bpe.model file via this lib and falls
 # back to tiktoken if it's missing — but the tiktoken fallback also fails
@@ -63,6 +80,7 @@ datas = (
     + sentencepiece_datas
     + protobuf_datas
     + tiktoken_datas
+    + _extra_datas
     + docx_datas
     + pptx_datas
     + [
@@ -81,6 +99,7 @@ binaries = (
     + sentencepiece_binaries
     + protobuf_binaries
     + tiktoken_binaries
+    + _extra_binaries
 )
 
 hiddenimports = (
@@ -94,6 +113,7 @@ hiddenimports = (
     + protobuf_hidden
     + tiktoken_hidden
     + tiktoken_ext_hidden
+    + _extra_hidden
     + [
         "backend.main",
         "backend.config",
