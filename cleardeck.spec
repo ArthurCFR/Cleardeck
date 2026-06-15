@@ -104,6 +104,14 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
+    # transformers >= 4.46 walks the filesystem with os.scandir() at import
+    # time to discover its lazy submodules. With the default PYZ archive,
+    # those files don't exist on disk → FileNotFoundError. Forcing 'pyz+py'
+    # makes PyInstaller drop the source .py files next to the launcher so
+    # the scan succeeds.
+    module_collection_mode={
+        "transformers": "pyz+py",
+    },
     excludes=[
         # Cut down on bundle size: drop optional / unused dev tooling.
         "tkinter",
