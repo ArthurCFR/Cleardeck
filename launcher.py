@@ -57,23 +57,53 @@ def _setup_logging(logs_dir: Path) -> None:
     root_logger.setLevel(logging.INFO)
     root_logger.addHandler(handler)
 
-    # When running --noconsole, stdout/stderr point to NUL — redirect to the log.
+    # When running --noconsole, stdout/stderr point to NUL — redirect to the
+    # log. Must expose enough of the file API for libraries (e.g. uvicorn,
+    # transformers) that probe isatty(), encoding, etc.
     class _StreamToLogger:
+        encoding = "utf-8"
+        errors = "replace"
+        mode = "w"
+        closed = False
+
         def __init__(self, level: int) -> None:
             self.level = level
             self._buffer = ""
 
-        def write(self, message: str) -> None:
+        def write(self, message: str) -> int:
             self._buffer += message
             while "\n" in self._buffer:
                 line, self._buffer = self._buffer.split("\n", 1)
                 if line.strip():
                     logging.log(self.level, line.rstrip())
+            return len(message)
+
+        def writelines(self, lines) -> None:
+            for line in lines:
+                self.write(line)
 
         def flush(self) -> None:
             if self._buffer.strip():
                 logging.log(self.level, self._buffer.rstrip())
             self._buffer = ""
+
+        def isatty(self) -> bool:
+            return False
+
+        def fileno(self) -> int:
+            raise OSError("Stream has no underlying file descriptor")
+
+        def readable(self) -> bool:
+            return False
+
+        def writable(self) -> bool:
+            return True
+
+        def seekable(self) -> bool:
+            return False
+
+        def close(self) -> None:
+            self.flush()
 
     sys.stdout = _StreamToLogger(logging.INFO)
     sys.stderr = _StreamToLogger(logging.ERROR)
@@ -126,7 +156,10 @@ def main() -> int:
     from backend.main import app
 
     try:
-        uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+        # log_config=None: skip uvicorn's stdout-aware ColourizedFormatter
+        # (it crashes on our _StreamToLogger). Uvicorn's loggers still flow
+        # to the root logger and end up in cleardeck.log.
+        uvicorn.run(app, host=HOST, port=PORT, log_level="info", log_config=None)
     except KeyboardInterrupt:
         logging.info("Shutdown requested by user")
     except Exception as e:
