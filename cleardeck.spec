@@ -17,7 +17,7 @@ Notes:
       them via Path(__file__).parent.parent / "frontend".
 """
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -33,10 +33,17 @@ huggingface_hub_datas, huggingface_hub_binaries, huggingface_hub_hidden = collec
 numpy_datas, numpy_binaries, numpy_hidden = collect_all("numpy")
 pil_datas, pil_binaries, pil_hidden = collect_all("PIL")
 
-# tiktoken: transformers 5.x probes for it during tokenizer auto-discovery
-# even when the target model uses sentencepiece (CamemBERT). The probe
-# raises an ImportError that surfaces as "tiktoken is required" in the UI.
+# sentencepiece: the actual tokenizer used by CamemBERT-NER. transformers
+# tries to read the sentencepiece.bpe.model file via this lib and falls
+# back to tiktoken if it's missing — but the tiktoken fallback also fails
+# because its plugin module tiktoken_ext isn't auto-discovered by
+# PyInstaller. Both libs need to be bundled explicitly.
+sentencepiece_datas, sentencepiece_binaries, sentencepiece_hidden = collect_all("sentencepiece")
 tiktoken_datas, tiktoken_binaries, tiktoken_hidden = collect_all("tiktoken")
+# tiktoken_ext is a namespace package that ships the encoding plugins
+# (cl100k_base, etc.). It's not picked up by collect_all('tiktoken') and
+# needs explicit submodule discovery.
+tiktoken_ext_hidden = collect_submodules("tiktoken_ext")
 
 # python-docx and python-pptx ship XML templates as package data.
 docx_datas = collect_data_files("docx")
@@ -49,6 +56,7 @@ datas = (
     + huggingface_hub_datas
     + numpy_datas
     + pil_datas
+    + sentencepiece_datas
     + tiktoken_datas
     + docx_datas
     + pptx_datas
@@ -65,6 +73,7 @@ binaries = (
     + huggingface_hub_binaries
     + numpy_binaries
     + pil_binaries
+    + sentencepiece_binaries
     + tiktoken_binaries
 )
 
@@ -75,7 +84,9 @@ hiddenimports = (
     + huggingface_hub_hidden
     + numpy_hidden
     + pil_hidden
+    + sentencepiece_hidden
     + tiktoken_hidden
+    + tiktoken_ext_hidden
     + [
         "backend.main",
         "backend.config",

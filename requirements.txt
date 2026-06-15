@@ -5,6 +5,7 @@ python-pptx
 torch
 transformers
 tiktoken
+sentencepiece
 python-multipart
 python-dotenv
 imagehash
