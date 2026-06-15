@@ -27,6 +27,12 @@ tokenizers_datas, tokenizers_binaries, tokenizers_hidden = collect_all("tokenize
 torch_datas, torch_binaries, torch_hidden = collect_all("torch")
 huggingface_hub_datas, huggingface_hub_binaries, huggingface_hub_hidden = collect_all("huggingface_hub")
 
+# NumPy / PIL need to be collected explicitly — PyInstaller's built-in hook
+# is unreliable on Windows with NumPy 2.x (C-extensions fail to import at
+# runtime if their compiled .pyd files aren't bundled alongside).
+numpy_datas, numpy_binaries, numpy_hidden = collect_all("numpy")
+pil_datas, pil_binaries, pil_hidden = collect_all("PIL")
+
 # python-docx and python-pptx ship XML templates as package data.
 docx_datas = collect_data_files("docx")
 pptx_datas = collect_data_files("pptx")
@@ -36,6 +42,8 @@ datas = (
     + tokenizers_datas
     + torch_datas
     + huggingface_hub_datas
+    + numpy_datas
+    + pil_datas
     + docx_datas
     + pptx_datas
     + [
@@ -49,6 +57,8 @@ binaries = (
     + tokenizers_binaries
     + torch_binaries
     + huggingface_hub_binaries
+    + numpy_binaries
+    + pil_binaries
 )
 
 hiddenimports = (
@@ -56,6 +66,8 @@ hiddenimports = (
     + tokenizers_hidden
     + torch_hidden
     + huggingface_hub_hidden
+    + numpy_hidden
+    + pil_hidden
     + [
         "backend.main",
         "backend.routers.projects",
