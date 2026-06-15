@@ -8,13 +8,14 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 
+from ..config import get_projects_dir
 from ..models.schemas import ProjectCreate, ProjectEntitiesUpdate, SeedEntitiesRequest
 from ..services.project_setup import build_project_data, seed_entities
 from ..engine.image_handler import compute_phash
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-PROJECTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "projects"
+PROJECTS_DIR = get_projects_dir()
 
 
 def _ensure_dir():

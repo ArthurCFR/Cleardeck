@@ -14,6 +14,7 @@ from typing import List
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
+from ..config import get_projects_dir
 from ..engine.anonymizer import preview, anonymize
 from ..engine.image_handler import preview_images, apply_image_anonymization
 
@@ -28,7 +29,7 @@ _batch_jobs_lock = threading.Lock()
 BATCH_MAX_FILES = 50
 BATCH_JOB_TTL = 60 * 60  # 1 hour
 
-PROJECTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "projects"
+PROJECTS_DIR = get_projects_dir()
 
 
 def _get_file_type(filename: str) -> str:

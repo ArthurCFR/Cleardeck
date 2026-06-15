@@ -111,6 +111,10 @@ def main() -> int:
     os.environ.setdefault("TRANSFORMERS_CACHE", str(models_dir))
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
+    # Keep user projects OUTSIDE the install directory so they survive
+    # uninstall/upgrade (Inno Setup deletes {app} on uninstall).
+    os.environ.setdefault("CLEARDECK_DATA_DIR", str(_user_data_dir()))
+
     _setup_logging(logs_dir)
     logging.info("%s launcher starting", APP_NAME)
     logging.info("User data dir: %s", _user_data_dir())

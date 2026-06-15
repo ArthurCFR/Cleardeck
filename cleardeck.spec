@@ -70,6 +70,7 @@ hiddenimports = (
     + pil_hidden
     + [
         "backend.main",
+        "backend.config",
         "backend.routers.projects",
         "backend.routers.anonymize",
         "backend.routers.deanonymize",
