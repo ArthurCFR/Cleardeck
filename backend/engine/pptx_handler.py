@@ -53,14 +53,25 @@ def _extract_from_shapes(shapes, slide_label: str, blocks: list[TextBlock]):
             table = shape.table
             for r_idx, row in enumerate(table.rows):
                 for c_idx, cell in enumerate(row.cells):
-                    for para in cell.text_frame.paragraphs:
-                        text = para.text.strip()
-                        if text:
-                            blocks.append(TextBlock(
-                                section=f"{slide_label} — Tableau, Cellule ({r_idx + 1},{c_idx + 1})",
-                                text=text,
-                                paragraph_ref=para,
-                            ))
+                    # Join the cell's paragraphs into a single block, keeping the
+                    # line breaks ("\n"). Detection runs on the full joined cell
+                    # so CamemBERT sees enough context to tag a name even when
+                    # Prénom and NOM sit on separate lines; the detector then
+                    # splits any cross-line span back onto its lines, so each
+                    # line becomes its own entity (one line = one placeholder).
+                    parts = [p.text.strip() for p in cell.text_frame.paragraphs if p.text.strip()]
+                    if not parts:
+                        continue
+                    cell_text = "\n".join(parts)
+                    first_para = next(
+                        (p for p in cell.text_frame.paragraphs if p.text.strip()),
+                        None,
+                    )
+                    blocks.append(TextBlock(
+                        section=f"{slide_label} — Tableau, Cellule ({r_idx + 1},{c_idx + 1})",
+                        text=cell_text,
+                        paragraph_ref=first_para,
+                    ))
 
 
 def extract_text_blocks(file_bytes: bytes) -> tuple[Presentation, list[TextBlock]]:

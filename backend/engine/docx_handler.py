@@ -48,18 +48,25 @@ def extract_text_blocks(file_bytes: bytes) -> tuple[Document, list[TextBlock]]:
                 paragraph_ref=para,
             ))
 
-    # Tables
+    # Tables — join the cell's paragraphs into a single block, keeping line
+    # breaks ("\n"), mirroring the PPTX handler. Detection runs on the full
+    # joined cell (so a name split across Prénom/NOM lines is still tagged),
+    # and the detector splits any cross-line span back onto its lines.
     for t_idx, table in enumerate(doc.tables):
         for r_idx, row in enumerate(table.rows):
             for c_idx, cell in enumerate(row.cells):
-                for p_idx, para in enumerate(cell.paragraphs):
-                    text = para.text.strip()
-                    if text:
-                        blocks.append(TextBlock(
-                            section=f"Tableau {t_idx + 1} — Cellule ({r_idx + 1},{c_idx + 1})",
-                            text=text,
-                            paragraph_ref=para,
-                        ))
+                parts = [p.text.strip() for p in cell.paragraphs if p.text.strip()]
+                if not parts:
+                    continue
+                first_para = next(
+                    (p for p in cell.paragraphs if p.text.strip()),
+                    None,
+                )
+                blocks.append(TextBlock(
+                    section=f"Tableau {t_idx + 1} — Cellule ({r_idx + 1},{c_idx + 1})",
+                    text="\n".join(parts),
+                    paragraph_ref=first_para,
+                ))
 
     # Headers and footers
     for section in doc.sections:

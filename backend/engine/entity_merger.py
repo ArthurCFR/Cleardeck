@@ -113,16 +113,15 @@ def merge_entities(
         category = ent.get("category", "autres")
         normalized = entity.lower().strip()
 
-        # Skip if already covered by project entities
+        # Skip if already covered by project entities (or an earlier AI entity
+        # with the same normalized text — that's how identical mentions share a
+        # placeholder). We deliberately do NOT fuzzy-link partial mentions to
+        # other groups: each distinct fragment owns its placeholder, which keeps
+        # de-anonymisation unambiguous (one placeholder -> one original).
         if normalized in seen_normalized:
             continue
 
-        # Try to link to existing group via variant matching
-        linked_placeholder = _find_variant_match(entity, seen_normalized)
-        if linked_placeholder:
-            placeholder = linked_placeholder
-        else:
-            placeholder = _get_or_create_placeholder(entity, category)
+        placeholder = _get_or_create_placeholder(entity, category)
 
         seen_normalized[normalized] = placeholder
         all_pairs.append((entity, placeholder))
@@ -147,30 +146,6 @@ def merge_entities(
             unique_pairs.append((original, placeholder))
 
     return unique_pairs, mapping_entries
-
-
-def _find_variant_match(entity: str, seen: dict[str, str]) -> str | None:
-    """Try to match an AI-detected entity to an existing project entity group.
-
-    Checks if the entity is a substring of, or shares significant words with,
-    an already-seen entity.
-    """
-    entity_lower = entity.lower().strip()
-    entity_words = {w for w in entity_lower.split() if len(w) > 2}
-
-    for seen_entity, placeholder in seen.items():
-        # Substring match
-        if entity_lower in seen_entity or seen_entity in entity_lower:
-            return placeholder
-
-        # Significant word overlap
-        seen_words = {w for w in seen_entity.split() if len(w) > 2}
-        if entity_words and seen_words:
-            common = entity_words & seen_words
-            if any(len(w) > 3 for w in common):
-                return placeholder
-
-    return None
 
 
 def _group_variants(entities: list[str]) -> list[list[str]]:

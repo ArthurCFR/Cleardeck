@@ -32,8 +32,11 @@ LABEL_TO_CATEGORY = {
 # Minimum entity length to avoid noise
 MIN_ENTITY_LENGTH = 3
 
-# Minimum confidence score (0-1). CamemBERT is well-calibrated, 0.8 is safe.
-MIN_CONFIDENCE = 0.8
+# Minimum confidence score (0-1). Lowered from 0.8 → 0.5 so the detector
+# surfaces moderate-confidence candidates too — the consultant prefers a
+# few false positives (visible in triage, can be dismissed) over missing
+# real identifying data. Below this the noise floor is too high.
+MIN_CONFIDENCE = 0.5
 
 # Words that should never be flagged as entities
 _STOPWORDS = {
@@ -116,13 +119,28 @@ def detect_entities(
             if label == "MISC":
                 continue
 
+            # Use the real source substring (not pred["word"], which the
+            # tokenizer detokenises with spaces) so newlines inside the span
+            # are preserved — they are the boundaries we split on below.
+            surface = chunk_text[pred["start"]:pred["end"]]
+
             raw_results.append({
-                "entity": pred["word"],
+                "entity": surface,
                 "label": label,
                 "start": pred["start"] + chunk_offset,
                 "end": pred["end"] + chunk_offset,
                 "confidence": pred["score"],
             })
+
+    # Split spans that cross line boundaries. The text fed to CamemBERT joins
+    # every paragraph/cell line with "\n"; with aggregation_strategy="simple"
+    # the model merges contiguous same-label tokens *across* those newlines, so
+    # a column of stacked names (one person per line) collapses into a single
+    # giant PER span. We slice each span back onto its line boundaries: every
+    # line becomes its own entity. This guarantees one fragment = one
+    # placeholder downstream, while detection still ran on the full joined
+    # context (so an isolated surname like "ETTAHAR" still inherits PER).
+    raw_results = _split_on_newlines(raw_results)
 
     # Filter and clean
     results = []
@@ -195,6 +213,38 @@ def _split_text(text: str, max_chars: int = 1500) -> list[tuple[str, int]]:
         chunks.append((current_chunk, current_offset))
 
     return chunks
+
+
+def _split_on_newlines(raw_results: list[dict]) -> list[dict]:
+    """Split any detected span that contains newlines into per-line fragments.
+
+    Each fragment inherits the parent span's label and confidence and gets
+    accurate start/end offsets (leading whitespace per line is trimmed and
+    the offset adjusted). Spans with no newline pass through unchanged.
+    """
+    fragments: list[dict] = []
+    for r in raw_results:
+        surface = r["entity"]
+        if "\n" not in surface:
+            fragments.append(r)
+            continue
+
+        cursor = 0  # offset of the current line within `surface`
+        for line in surface.split("\n"):
+            stripped = line.strip()
+            if stripped:
+                lead = len(line) - len(line.lstrip())
+                frag_start = r["start"] + cursor + lead
+                fragments.append({
+                    "entity": stripped,
+                    "label": r["label"],
+                    "start": frag_start,
+                    "end": frag_start + len(stripped),
+                    "confidence": r["confidence"],
+                })
+            cursor += len(line) + 1  # +1 for the consumed "\n"
+
+    return fragments
 
 
 def _deduplicate(results: list[dict]) -> list[dict]:

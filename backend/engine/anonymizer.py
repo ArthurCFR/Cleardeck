@@ -266,15 +266,23 @@ def anonymize(
 
     ai_detections = detect_entities(all_text, known_entities=set(all_project_entities))
 
-    # By default, auto-confirm high-confidence detections (>= 0.9). In batch
-    # mode we accept everything the detector returned (still bounded by the
-    # detector's own MIN_CONFIDENCE threshold) to skip per-file triage.
-    threshold = 0.0 if auto_confirm_all else 0.9
+    # By default, auto-confirm at >= 0.65 (lowered from 0.9). The consultant
+    # prefers an over-anonymisation bias: better to mask a few harmless words
+    # than to leak real identifying data. Entities between MIN_CONFIDENCE
+    # (0.5) and 0.65 still surface in the triage UI so the user can keep
+    # them if needed. In batch mode we drop the threshold to 0 to skip
+    # per-file triage entirely.
+    threshold = 0.0 if auto_confirm_all else 0.65
     auto_ai = [
         {"entity": d["entity"], "category": d["category"]}
         for d in ai_detections
         if d["confidence"] >= threshold
     ]
+
+    # Names split across lines (Prénom on one line, NOM on the next) are
+    # handled upstream: pptx/docx handlers keep the cell's line breaks and the
+    # detector slices each cross-line span back onto its lines, so every line
+    # already arrives here as its own entity. No token expansion needed.
 
     # Email detection — added as confirmed entities with category "mails"
     email_detections = _detect_emails(all_text)
