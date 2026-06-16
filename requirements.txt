@@ -11,3 +11,7 @@ python-multipart
 python-dotenv
 imagehash
 Pillow
+pywebview
+# Windows-only backend for pywebview (Edge WebView2 via .NET). Harmless to
+# leave declared on other platforms — pip just won't install it there.
+pythonnet; sys_platform == "win32"

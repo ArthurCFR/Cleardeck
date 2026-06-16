@@ -1788,3 +1788,206 @@ body {
 /* Button is only relevant in idle/error states */
 .install-card[data-state="installing"] .install-btn,
 .install-card[data-state="ready"] .install-btn { display: none; }
+
+/* ───────────────────── Anonymize result view ───────────────────── */
+
+.anon-result {
+  max-width: 720px;
+  margin: 0 auto;
+  animation: result-in 220ms ease;
+}
+
+@keyframes result-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.result-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.result-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--green-bg);
+  border: 1px solid var(--green-border);
+  color: #2E7D32;
+}
+
+.result-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 2px 0 4px;
+}
+
+.result-sub {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 11px;
+}
+
+/* Highlighted "missed terms" box — the focal point of the screen */
+.forgotten-box {
+  background: var(--orange-bg);
+  border: 1px solid var(--orange-border);
+  border-left-width: 4px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+}
+
+.forgotten-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.forgotten-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.forgotten-input-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.forgotten-input {
+  flex: 1;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  font-size: 0.85rem;
+  font-family: 'Archivo', sans-serif;
+  transition: border-color var(--transition);
+}
+
+.forgotten-input:focus {
+  outline: none;
+  border-color: var(--text-primary);
+}
+
+.forgotten-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.forgotten-tags:not(:empty) {
+  margin-bottom: 14px;
+}
+
+.forgotten-regen { width: 100%; }
+
+.result-mapping {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.mapping-group-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+/* Manually-added terms stand out from the AI ones */
+.mapping-group--manual {
+  background: var(--orange-bg);
+  border: 1px solid var(--orange-border);
+  border-left-width: 4px;
+  padding: 12px 14px;
+}
+
+.mapping-group--manual .mapping-group-title {
+  color: #8a5a00;
+}
+
+.result-mapping-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Alt texts: discreet, collapsed by default */
+.mapping-details {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.mapping-details-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 14px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mapping-details-summary::-webkit-details-marker { display: none; }
+
+/* Chevron that rotates when open */
+.mapping-details-summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform var(--transition);
+}
+
+.mapping-details[open] .mapping-details-summary::before { transform: rotate(90deg); }
+
+.mapping-details[open] .mapping-details-summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.mapping-details .result-mapping-list {
+  padding: 12px 14px;
+}

@@ -258,7 +258,15 @@ def anonymize(
     else:
         raise ValueError(f"Unsupported file type: {file_type}")
 
-    all_text = "\n".join(b.text for b in blocks)
+    # Feed the filename (without extension) to the detector too, so sensitive
+    # info that only appears in the document's name — and never in its body —
+    # is still detected and masked in the anonymised filename.
+    name_for_detection = filename.rsplit(".", 1)[0] if filename else ""
+    text_parts = [b.text for b in blocks]
+    if name_for_detection:
+        text_parts.append(name_for_detection)
+    all_text = "\n".join(text_parts)
+
     all_project_entities = []
     if project_entities:
         for entities in project_entities.values():

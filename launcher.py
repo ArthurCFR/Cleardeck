@@ -2,8 +2,10 @@
 Cleardeck Windows launcher.
 
 Sets up the user data directories (model cache + logs), starts the FastAPI
-backend with uvicorn, waits until the port is reachable, and opens the
-default browser. Designed to be packaged as a windowless exe via PyInstaller
+backend with uvicorn in a background thread, waits until the port is
+reachable, then opens the app inside a native desktop window (pywebview /
+Edge WebView2). Falls back to the default browser if the window can't be
+created. Designed to be packaged as a windowless exe via PyInstaller
 (`--noconsole`), so all output goes to a log file.
 """
 
@@ -186,17 +188,35 @@ def _open_url(url: str) -> bool:
     return False
 
 
-def _open_browser_when_ready() -> None:
-    """Run in a thread: wait for the server, then open the browser."""
-    if _wait_for_port(HOST, PORT, timeout=180.0):
-        logging.info("Server reachable, opening browser at %s", URL)
-        if not _open_url(URL):
-            logging.error(
-                "Could not open the browser automatically. "
-                "Open %s manually in your browser.", URL,
-            )
-    else:
-        logging.error("Server did not start within timeout, browser not opened")
+def _run_server() -> None:
+    """Run uvicorn in a background thread (daemon, dies with the process)."""
+    import uvicorn
+    from backend.main import app
+
+    try:
+        # log_config=None: skip uvicorn's stdout-aware ColourizedFormatter
+        # (it crashes on our _StreamToLogger). Uvicorn's loggers still flow
+        # to the root logger and end up in cleardeck.log.
+        uvicorn.run(app, host=HOST, port=PORT, log_level="info", log_config=None)
+    except Exception as e:  # pragma: no cover — surfaced in the log file
+        logging.exception("Fatal error in uvicorn: %s", e)
+
+
+def _open_in_browser_and_block() -> int:
+    """Fallback path: open the system browser and keep the process (and thus
+    the daemon server thread) alive until the user kills it."""
+    logging.info("Falling back to the system browser at %s", URL)
+    if not _open_url(URL):
+        logging.error(
+            "Could not open the browser automatically. "
+            "Open %s manually in your browser.", URL,
+        )
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        logging.info("Shutdown requested by user")
+    return 0
 
 
 def main() -> int:
@@ -215,28 +235,33 @@ def main() -> int:
     logging.info("%s launcher starting", APP_NAME)
     logging.info("User data dir: %s", _user_data_dir())
 
-    # Defer heavy imports so HF_HOME above is honoured. In a PyInstaller
-    # bundle these can take 30-90 seconds the first time (transformers walks
-    # its module tree on disk), so we start the browser thread AFTER imports
-    # are done — otherwise the wait_for_port timeout would fire while imports
-    # are still running and the browser would never open.
-    import uvicorn
-    from backend.main import app
+    # Server runs in a daemon thread; the main thread is reserved for the
+    # native window. pywebview MUST run on the main thread on Windows/macOS.
+    threading.Thread(target=_run_server, daemon=True).start()
 
-    logging.info("Imports complete, starting server")
-    threading.Thread(target=_open_browser_when_ready, daemon=True).start()
-
-    try:
-        # log_config=None: skip uvicorn's stdout-aware ColourizedFormatter
-        # (it crashes on our _StreamToLogger). Uvicorn's loggers still flow
-        # to the root logger and end up in cleardeck.log.
-        uvicorn.run(app, host=HOST, port=PORT, log_level="info", log_config=None)
-    except KeyboardInterrupt:
-        logging.info("Shutdown requested by user")
-    except Exception as e:
-        logging.exception("Fatal error in uvicorn: %s", e)
+    if not _wait_for_port(HOST, PORT, timeout=180.0):
+        logging.error("Server did not start within timeout")
         return 1
-    return 0
+
+    logging.info("Server reachable, opening application window")
+    try:
+        import webview
+
+        webview.create_window(
+            APP_NAME,
+            URL,
+            width=1280,
+            height=860,
+            min_size=(960, 640),
+        )
+        # Blocking call — returns when the user closes the window, after
+        # which main() returns and the daemon server thread is torn down.
+        webview.start()
+        logging.info("Application window closed, shutting down")
+        return 0
+    except Exception as e:
+        logging.exception("Could not open native window (%s)", e)
+        return _open_in_browser_and_block()
 
 
 if __name__ == "__main__":

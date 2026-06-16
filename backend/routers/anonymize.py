@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import threading
 import time
 import uuid
@@ -30,6 +31,27 @@ BATCH_MAX_FILES = 50
 BATCH_JOB_TTL = 60 * 60  # 1 hour
 
 PROJECTS_DIR = get_projects_dir()
+
+
+# Characters that break downloads (Windows-reserved) or that browsers refuse
+# in the <a download> attribute. We keep accents/spaces (those download fine).
+_RESERVED_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _safe_download_name(name: str) -> str:
+    """Make a filename safe for download across browsers/OSes.
+
+    - placeholder brackets [PERSONNE_2] -> (PERSONNE_2)
+    - en/em dashes (– —) -> simple hyphen (Edge rejects them in `download`)
+    - Windows-reserved chars -> underscore
+    Accents and spaces are preserved (they download fine).
+    """
+    name = name.replace("[", "(").replace("]", ")")
+    name = name.replace("–", "-").replace("—", "-")  # – —
+    name = _RESERVED_FILENAME_CHARS.sub("_", name)
+    # Collapse runs of whitespace and trim trailing dots/spaces.
+    name = re.sub(r"\s+", " ", name).strip().rstrip(".")
+    return name or "document"
 
 
 def _get_file_type(filename: str) -> str:
@@ -103,12 +125,14 @@ async def anonymize_endpoint(
     file: UploadFile = File(...),
     project_id: str = Form(default=""),
     manual_entities: str = Form(default=""),
-    confirmed_ai: str = Form(default="[]"),
-    image_remove_indices: str = Form(default="[]"),
+    extra_terms: str = Form(default="[]"),
 ):
     """Anonymize a file and return download IDs.
 
-    V2: confirmed_ai replaces confirmed_fuzzy + confirmed_spacy.
+    No triage: every AI detection is auto-confirmed (auto_confirm_all=True),
+    matching the consultant's over-anonymisation bias. The user refines the
+    result afterwards by adding `extra_terms` — words the AI missed — which
+    are matched case-insensitively and trigger a fresh version.
     """
     file_bytes = await file.read()
     filename = file.filename
@@ -124,31 +148,33 @@ async def anonymize_endpoint(
         except json.JSONDecodeError:
             raise HTTPException(400, "Format JSON invalide")
 
+    # Forgotten terms added by the user after seeing the first version. They
+    # are plain exact-match entities (case-insensitive matching is handled
+    # downstream in cross_run) and go into the "autres" category.
     try:
-        ai_ents = json.loads(confirmed_ai) if confirmed_ai else []
+        extra = json.loads(extra_terms) if extra_terms else []
     except json.JSONDecodeError:
-        ai_ents = []
-
-    try:
-        remove_indices = json.loads(image_remove_indices) if image_remove_indices else []
-    except json.JSONDecodeError:
-        remove_indices = []
+        extra = []
+    extra = [t.strip() for t in extra if isinstance(t, str) and t.strip()]
+    if extra:
+        entities = dict(entities) if entities else {}
+        entities["autres"] = list(entities.get("autres", [])) + extra
 
     # Step 1: Apply image anonymization first (on original bytes)
     logo_hashes = _load_project_logo_hashes(project_id) if project_id else []
-    if logo_hashes or remove_indices:
+    if logo_hashes:
         file_bytes = apply_image_anonymization(
-            file_bytes, file_type, logo_hashes, remove_indices
+            file_bytes, file_type, logo_hashes, []
         )
 
-    # Step 2: Apply text anonymization
+    # Step 2: Apply text anonymization — auto-confirm every detection.
     result_bytes, mapping, anon_name = anonymize(
         file_bytes=file_bytes,
         file_type=file_type,
         filename=filename,
         project_id=project_id or None,
         project_entities=entities,
-        confirmed_ai=ai_ents,
+        auto_confirm_all=True,
     )
 
     # Store results for download
@@ -161,17 +187,20 @@ async def anonymize_endpoint(
         else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
 
-    anon_filename = f"anonymise_{anon_name}"
+    anon_filename = _safe_download_name(f"anonymise_{anon_name}")
+    mapping_filename = _safe_download_name(f"mapping_{filename.rsplit('.', 1)[0]}.json")
     _file_store[anon_id] = (result_bytes, anon_filename, content_type)
     _file_store[mapping_id] = (
         json.dumps(mapping, ensure_ascii=False, indent=2).encode("utf-8"),
-        f"mapping_{filename.rsplit('.', 1)[0]}.json",
+        mapping_filename,
         "application/json",
     )
 
     return {
         "anon_file_id": anon_id,
         "mapping_file_id": mapping_id,
+        "anon_filename": anon_filename,
+        "mapping_filename": mapping_filename,
         "mapping": mapping,
     }
 
@@ -246,9 +275,9 @@ def _run_batch_job(
                     )
 
                     stem = filename.rsplit(".", 1)[0]
-                    zf.writestr(f"anonymise_{anon_name}", result_bytes)
+                    zf.writestr(_safe_download_name(f"anonymise_{anon_name}"), result_bytes)
                     zf.writestr(
-                        f"mapping_{stem}.json",
+                        _safe_download_name(f"mapping_{stem}.json"),
                         json.dumps(mapping, ensure_ascii=False, indent=2),
                     )
                 except Exception as e:

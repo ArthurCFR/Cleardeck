@@ -20,10 +20,10 @@ const state = {
   batchFiles: [],     // File[] when >= 2 files dropped
   batchJobId: null,
   selectedProjectId: '',
-  previewData: null,
-  highlightOverrides: {}, // key -> 'confirmed' | 'dismissed'
+  forgottenTerms: [],  // terms the user adds after seeing the first version
+  docVersion: 1,       // bumped on each regeneration (display only, not the filename)
   anonResult: null,
-  anonHistory: [],     // { fileName, fileType, anonFileId, mappingFileId }
+  anonHistory: [],     // { fileName, fileType, anonFileId, mappingFileId, replacements }
   // Restore
   restoreFile: null,
   mappingFile: null,
@@ -637,18 +637,14 @@ setupHeroDrop('anon-file', 'anon-drop-zone', 'anon-file-name', 'selectedFile', {
     showFiletypePop(file.name, 'anon-drop-zone');
     show('#anon-preview-actions');
     hide('#batch-panel');
+    hide('#anon-result-panel');
     state.batchFiles = [];
-    // New file = invalidate previous triage
-    state.previewData = null;
-    state.triageState = {};
-    state.aiEntities = [];
+    state.forgottenTerms = [];
   },
   onClear: () => {
     clearFiletypePop('anon-drop-zone');
     hide('#anon-preview-actions');
-    state.previewData = null;
-    state.triageState = {};
-    state.aiEntities = [];
+    state.forgottenTerms = [];
   },
   onMultiple: (files) => {
     // Filter to supported types
@@ -721,7 +717,7 @@ $('#mapping-browse').addEventListener('click', (e) => { e.stopPropagation(); $('
 
 function updatePreviewButton() {
   const hasFile = !!state.selectedFile;
-  $('#btn-preview').disabled = !hasFile;
+  $('#btn-anonymize').disabled = !hasFile;
 }
 
 // Manual entity fields update preview button
@@ -729,56 +725,95 @@ function updatePreviewButton() {
   $(`#${id}`)?.addEventListener('input', updatePreviewButton);
 });
 
-// Switch to triage full-page view
-function showTriagePage() {
+// Switch to the result view (document ready + add-missed-terms box)
+function showResultPanel() {
   hide('#anon-drop-zone');
   hide('#anon-preview-actions');
   hide('#manual-entities-section');
   hide('#project-selector');
-  show('#preview-panel');
+  show('#anon-result-panel');
 }
 
-// Preview
-$('#btn-preview').addEventListener('click', async () => {
+// Return to the upload view (e.g. "Anonymiser un autre document")
+function showUploadView() {
+  hide('#anon-result-panel');
+  show('#anon-drop-zone');
+  show('#project-selector');
+  hide('#anon-preview-actions');
+  clearFiletypePop('anon-drop-zone');
+  // Reset selection
+  state.selectedFile = null;
+  state.forgottenTerms = [];
+  state.anonResult = null;
+  $('#anon-file-name').textContent = '';
+  $('#anon-file').value = '';
+  if (!state.selectedProjectId) show('#manual-entities-section');
+}
+
+// Run anonymization (auto-confirm all detections) and show the result.
+// `extraTerms` are the forgotten terms the user added after the first pass.
+async function runAnonymize(extraTerms) {
   if (!state.selectedFile) return;
+  const fileName = state.selectedFile.name;
 
-  // If triage data already exists, just navigate back to it
-  if (state.previewData) {
-    showTriagePage();
-    return;
-  }
-
-  showLoading('Analyse du document...');
+  showLoading('Anonymisation en cours...');
   try {
     const formData = new FormData();
     formData.append('file', state.selectedFile);
-
     if (state.selectedProjectId) {
       formData.append('project_id', state.selectedProjectId);
     } else {
-      const manualEnts = buildManualEntities();
-      formData.append('manual_entities', JSON.stringify(manualEnts));
+      formData.append('manual_entities', JSON.stringify(buildManualEntities()));
+    }
+    formData.append('extra_terms', JSON.stringify(extraTerms || []));
+
+    state.anonResult = await api('/api/anonymize', { method: 'POST', body: formData });
+    const replacements = extractReplacements(state.anonResult.mapping);
+
+    // Update or create the matching history entry (regenerations replace it)
+    const ext = fileName.toLowerCase().split('.').pop();
+    const entry = {
+      fileName,
+      fileType: ext,
+      anonFileId: state.anonResult.anon_file_id,
+      mappingFileId: state.anonResult.mapping_file_id,
+      anonFileName: state.anonResult.anon_filename,
+      mappingFileName: state.anonResult.mapping_filename,
+      replacements,
+    };
+    if (state._currentHistoryId && state.anonHistory[0] &&
+        state.anonHistory[0]._id === state._currentHistoryId) {
+      state.anonHistory[0] = { ...entry, _id: state._currentHistoryId };
+    } else {
+      state._currentHistoryId = `h${Date.now()}`;
+      state.anonHistory.unshift({ ...entry, _id: state._currentHistoryId });
     }
 
-    state.previewData = await api('/api/preview', { method: 'POST', body: formData });
-    state.highlightOverrides = {};
-
-    renderPreview();
-    showTriagePage();
+    renderAnonResult(replacements);
+    renderAnonHistory();
+    showResultPanel();
   } catch (e) {
     alert(`Erreur: ${e.message}`);
   } finally {
     hideLoading();
   }
-});
+}
 
-// Back button: return to upload view
-$('#triage-back').addEventListener('click', () => {
-  hide('#preview-panel');
-  show('#anon-drop-zone');
-  show('#anon-preview-actions');
-  show('#project-selector');
-  if (!state.selectedProjectId) show('#manual-entities-section');
+// Pull a flat [{original, placeholder}] list out of the mapping JSON.
+function extractReplacements(mapping) {
+  if (!mapping || !Array.isArray(mapping.entities)) return [];
+  return mapping.entities.map(e => ({
+    original: e.original,
+    placeholder: e.placeholder,
+  }));
+}
+
+// First anonymization (from the upload view)
+$('#btn-anonymize').addEventListener('click', () => {
+  state.forgottenTerms = [];
+  state.docVersion = 1;
+  state._currentHistoryId = null;  // this is a brand new document
+  runAnonymize([]);
 });
 
 function buildManualEntities() {
@@ -791,281 +826,101 @@ function buildManualEntities() {
   };
 }
 
-function renderPreview() {
-  const data = state.previewData;
-  if (!data) return;
+// Render the result view after an anonymization pass.
+function renderAnonResult(replacements) {
+  $('#version-badge').textContent = `V${state.docVersion}`;
 
-  // Collect unique AI-detected entities (deduplicate by entity text)
-  const aiEntities = [];
-  const seen = new Set();
+  const n = replacements.length;
+  $('#result-summary').textContent = n > 0
+    ? `${n} terme${n > 1 ? 's' : ''} masqué${n > 1 ? 's' : ''}. Téléchargez le document, ou complétez les oublis ci-dessous.`
+    : "Aucun terme détecté. Ajoutez les termes à masquer ci-dessous, puis régénérez.";
 
-  for (const section of data.sections) {
-    for (const block of section.text_blocks) {
-      for (const h of block.highlights) {
-        const key = h.entity.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
+  // Categorise: image alt texts (placeholder [ALT_x]) get their own discreet,
+  // collapsible section; the rest splits into "added by hand" vs "found by AI".
+  const manualSet = new Set(state.forgottenTerms.map(t => t.toLowerCase()));
+  const isAlt = (r) => (r.placeholder || '').startsWith('[ALT_');
+  const alt = replacements.filter(isAlt);
+  const rest = replacements.filter(r => !isAlt(r));
+  const manual = rest.filter(r => manualSet.has((r.original || '').toLowerCase()));
+  const ai = rest.filter(r => !manualSet.has((r.original || '').toLowerCase()));
 
-        const score = h.score || 0;
+  const renderList = (items) => `<div class="result-mapping-list">${items.map(r =>
+    `<span class="anon-mapping-entry"><span class="anon-mapping-original">${esc(r.original)}</span> → ${esc(r.placeholder)}</span>`
+  ).join('')}</div>`;
 
-        // >= 90 confidence = auto-confirmed, no triage needed
-        if (score >= 90) continue;
+  const renderGroup = (title, items, modifier) => items.length
+    ? `<div class="mapping-group${modifier ? ' ' + modifier : ''}">
+         <h5 class="mapping-group-title">${title} · ${items.length}</h5>
+         ${renderList(items)}
+       </div>`
+    : '';
 
-        // < 90 = uncertain, goes to triage
-        // Extract surrounding context from the text block
-        const text = block.text;
-        const ctxRadius = 40;
-        const before = text.slice(Math.max(0, h.start - ctxRadius), h.start).replace(/^\S*\s/, '');
-        const after = text.slice(h.end, h.end + ctxRadius).replace(/\s\S*$/, '');
+  // Alt texts: collapsed by default, expand to read.
+  const renderAltGroup = (items) => items.length
+    ? `<details class="mapping-details">
+         <summary class="mapping-details-summary">Textes alternatifs d’images · ${items.length}</summary>
+         ${renderList(items)}
+       </details>`
+    : '';
 
-        aiEntities.push({
-          entity: h.entity,
-          category: h.category || 'autre',
-          score: score,
-          context: { before, after },
-        });
-      }
-    }
-  }
+  $('#result-mapping').innerHTML =
+    renderGroup('Ajoutés à la main', manual, 'mapping-group--manual') +
+    renderGroup('Détectés par l’IA', ai) +
+    renderAltGroup(alt);
 
-  // Initialize triage state: uncertain items start on RIGHT (keep) by default
-  state.triageState = {};
-  for (const e of aiEntities) {
-    state.triageState[e.entity] = 'keep';
-  }
-  state.aiEntities = aiEntities;
-
-  // Update Jean-Hubert confirmed count
-  const confirmedCount = data.summary.confirmed || 0;
-  const countEl = $('#triage-confirmed-count');
-  countEl.textContent = `${confirmedCount} donnee${confirmedCount > 1 ? 's' : ''} sensible${confirmedCount > 1 ? 's' : ''}`;
-
-  // Update doubt line based on whether there are uncertain items
-  const doubtLine = $('#triage-doubt-line');
-  if (aiEntities.length === 0) {
-    doubtLine.textContent = 'Aucun doute — tout est pret pour l\'anonymisation.';
-  } else {
-    doubtLine.textContent = `Mais il a un doute sur la sensibilite de ${aiEntities.length === 1 ? 'ce terme' : 'ces termes'} dans le contexte de ton document :`;
-  }
-
-  renderTriage();
+  renderForgottenTags();
 }
 
-function renderTriage(animatingEntity = null, animatingDirection = null) {
-  const anonymizeCol = $('#triage-anonymize');
-  const keepCol = $('#triage-keep');
+// ── Forgotten terms (missed by the AI) ──
 
-  const anonymizeItems = state.aiEntities.filter(e => state.triageState[e.entity] === 'anonymize');
-  const keepItems = state.aiEntities.filter(e => state.triageState[e.entity] === 'keep');
-
-  // Build HTML with animation classes
-  function buildItem(e, side) {
-    const isArriving = animatingEntity === e.entity &&
-      ((animatingDirection === 'keep' && side === 'left') ||
-       (animatingDirection === 'anonymize' && side === 'right'));
-    const cls = isArriving ? 'triage-item arriving' : 'triage-item';
-    const ctx = e.context || {};
-    const hasContext = ctx.before || ctx.after;
-    const tooltip = hasContext
-      ? `<span class="triage-tooltip">…${esc(ctx.before || '')}<strong>${esc(e.entity)}</strong>${esc(ctx.after || '')}…</span>`
-      : '';
-    return `<div class="${cls}" data-entity="${esc(e.entity)}" data-side="${side}">
-      <span class="triage-item-text">${esc(e.entity)}</span>
-      <span class="triage-category">${esc(e.category)}</span>
-      ${tooltip}
-    </div>`;
-  }
-
-  // Render left column (keep)
-  if (keepItems.length === 0) {
-    keepCol.innerHTML = '<div class="triage-empty">Tout sera anonymise</div>';
-  } else {
-    keepCol.innerHTML = keepItems.map(e => buildItem(e, 'left')).join('');
-  }
-
-  // Render right column (anonymize)
-  if (anonymizeItems.length === 0) {
-    anonymizeCol.innerHTML = '<div class="triage-empty">Aucun element selectionne</div>';
-  } else {
-    anonymizeCol.innerHTML = anonymizeItems.map(e => buildItem(e, 'right')).join('');
-  }
-
-  // Bind clicks with animation
-  document.querySelectorAll('.triage-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const entity = el.dataset.entity;
-      const side = el.dataset.side;
-      const direction = side === 'left' ? 'anonymize' : 'keep';
-      const targetCol = direction === 'anonymize' ? anonymizeCol : keepCol;
-
-      // Get source element rect for flying animation
-      const sourceRect = el.getBoundingClientRect();
-      const containerRect = $('.triage-container').getBoundingClientRect();
-
-      // Create a flying clone
-      const clone = el.cloneNode(true);
-      clone.classList.add('triage-item-flying');
-      clone.style.position = 'fixed';
-      clone.style.left = sourceRect.left + 'px';
-      clone.style.top = sourceRect.top + 'px';
-      clone.style.width = sourceRect.width + 'px';
-      clone.style.zIndex = '100';
-      clone.style.pointerEvents = 'none';
-      document.body.appendChild(clone);
-
-      // Fade out source
-      el.classList.add('departing');
-
-      // Calculate insertion index: where will this entity land in the target list?
-      const targetItems = direction === 'anonymize'
-        ? state.aiEntities.filter(e => state.triageState[e.entity] === 'anonymize')
-        : state.aiEntities.filter(e => state.triageState[e.entity] === 'keep');
-      const entityIndex = state.aiEntities.findIndex(e => e.entity === entity);
-      let insertionIndex = 0;
-      for (const item of targetItems) {
-        const idx = state.aiEntities.findIndex(e => e.entity === item.entity);
-        if (idx < entityIndex) insertionIndex++;
-        else break;
-      }
-
-      // Clear empty-state message if target column is empty
-      const emptyMsg = targetCol.querySelector('.triage-empty');
-      if (emptyMsg) emptyMsg.remove();
-
-      // Insert a placeholder at the correct position to push siblings down
-      const placeholder = document.createElement('div');
-      placeholder.classList.add('triage-placeholder');
-      const targetChildren = targetCol.querySelectorAll('.triage-item');
-      if (targetChildren[insertionIndex]) {
-        targetCol.insertBefore(placeholder, targetChildren[insertionIndex]);
-      } else {
-        targetCol.appendChild(placeholder);
-      }
-      // Force layout, then expand
-      placeholder.offsetHeight;
-      placeholder.classList.add('triage-placeholder-open');
-
-      // Wait a frame for the placeholder to start expanding, then fly to its position
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const placeholderRect = placeholder.getBoundingClientRect();
-          const targetX = placeholderRect.left;
-          const targetY = placeholderRect.top;
-
-          // Apply dark/light style mid-flight
-          if (direction === 'anonymize') {
-            clone.style.background = '#1A1A1A';
-            clone.style.color = '#FFFFFF';
-            clone.style.borderColor = 'rgba(255,255,255,0.08)';
-          } else {
-            clone.style.background = '#FFFFFF';
-            clone.style.color = 'var(--text-primary)';
-            clone.style.borderColor = 'var(--border)';
-          }
-
-          clone.style.transition = 'all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
-          clone.style.left = targetX + 'px';
-          clone.style.top = targetY + 'px';
-          clone.style.opacity = '0.9';
-        });
-      });
-
-      // After flight completes, swap clone for real element seamlessly
-      setTimeout(() => {
-        placeholder.remove();
-        state.triageState[entity] = direction;
-        renderTriage(entity, direction);
-        // Find the arriving element, keep it hidden until clone is gone
-        const arrivingEl = document.querySelector('.triage-item.arriving');
-        if (arrivingEl) arrivingEl.style.opacity = '0';
-        // Remove clone, then reveal the real element
-        clone.remove();
-        if (arrivingEl) {
-          requestAnimationFrame(() => {
-            arrivingEl.style.opacity = '';
-          });
-        }
-      }, 520);
+function renderForgottenTags() {
+  const container = $('#forgotten-tags');
+  container.innerHTML = state.forgottenTerms.map((t, i) => `
+    <span class="entity-tag">
+      ${esc(t)}
+      <button class="remove-tag" data-idx="${i}" title="Retirer">&times;</button>
+    </span>
+  `).join('');
+  container.querySelectorAll('.remove-tag').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.forgottenTerms.splice(parseInt(btn.dataset.idx), 1);
+      renderForgottenTags();
     });
   });
-
-  // Update summary
-  updateTriageSummary();
+  // Show "Régénérer" as soon as there is at least one term to add
+  $('#btn-regenerate').style.display = state.forgottenTerms.length ? '' : 'none';
 }
 
-function updateTriageSummary() {
-  const data = state.previewData;
-  if (!data) return;
-
-  const projectCount = data.summary.confirmed;
-  const aiAnonymize = Object.values(state.triageState).filter(v => v === 'anonymize').length;
-  const aiKeep = Object.values(state.triageState).filter(v => v === 'keep').length;
-  const total = projectCount + aiAnonymize;
-
-  $('#preview-summary').innerHTML = `
-    <span class="stat stat-confirmed">${total} anonymisee${total > 1 ? 's' : ''}</span>
-    ${aiKeep > 0 ? `<span class="stat stat-keep">${aiKeep} conservee${aiKeep > 1 ? 's' : ''}</span>` : ''}
-  `;
-}
-
-
-// Anonymize
-$('#btn-anonymize').addEventListener('click', async () => {
-  if (!state.selectedFile) return;
-  const fileName = state.selectedFile.name;
-
-  showLoading('Anonymisation en cours...');
-  try {
-    const formData = new FormData();
-    formData.append('file', state.selectedFile);
-
-    if (state.selectedProjectId) {
-      formData.append('project_id', state.selectedProjectId);
-    } else {
-      formData.append('manual_entities', JSON.stringify(buildManualEntities()));
-    }
-
-    // Build confirmed AI entities from triage state
-    const confirmedAi = [];
-    if (state.triageState && state.aiEntities) {
-      for (const e of state.aiEntities) {
-        if (state.triageState[e.entity] === 'anonymize') {
-          confirmedAi.push({ entity: e.entity, category: e.category });
-        }
-      }
-    }
-    formData.append('confirmed_ai', JSON.stringify(confirmedAi));
-
-    state.anonResult = await api('/api/anonymize', { method: 'POST', body: formData });
-
-    // Add to history
-    const ext = fileName.toLowerCase().split('.').pop();
-    state.anonHistory.unshift({
-      fileName,
-      fileType: ext,
-      anonFileId: state.anonResult.anon_file_id,
-      mappingFileId: state.anonResult.mapping_file_id,
-      mapping: state.anonResult.mapping || {},
-    });
-
-    hide('#preview-panel');
-    hide('#anon-preview-actions');
-    show('#anon-drop-zone');
-    show('#project-selector');
-    clearFiletypePop('anon-drop-zone');
-
-    // Reset drop zone
-    state.selectedFile = null;
-    $('#anon-file-name').textContent = '';
-    $('#anon-file').value = '';
-
-    renderAnonHistory();
-  } catch (e) {
-    alert(`Erreur: ${e.message}`);
-  } finally {
-    hideLoading();
+function addForgottenTerm() {
+  const input = $('#forgotten-input');
+  const val = input.value.trim();
+  if (!val) return;
+  // De-dup case-insensitively (matching is case-insensitive anyway)
+  if (!state.forgottenTerms.some(t => t.toLowerCase() === val.toLowerCase())) {
+    state.forgottenTerms.push(val);
   }
+  input.value = '';
+  renderForgottenTags();
+}
+
+$('#forgotten-add').addEventListener('click', addForgottenTerm);
+$('#forgotten-input').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addForgottenTerm(); }
 });
+
+$('#btn-regenerate').addEventListener('click', () => {
+  if (!state.forgottenTerms.length) return;
+  state.docVersion += 1;
+  runAnonymize(state.forgottenTerms);
+});
+
+$('#btn-download-anon').addEventListener('click', () => {
+  if (state.anonResult) downloadFile(state.anonResult.anon_file_id, state.anonResult.anon_filename);
+});
+$('#btn-download-mapping').addEventListener('click', () => {
+  if (state.anonResult) downloadFile(state.anonResult.mapping_file_id, state.anonResult.mapping_filename);
+});
+$('#btn-new-doc').addEventListener('click', showUploadView);
 
 function truncateMiddle(str, maxLen) {
   if (str.length <= maxLen) return str;
@@ -1079,28 +934,45 @@ function renderAnonHistory() {
     container.innerHTML = '';
     return;
   }
-  container.innerHTML = state.anonHistory.map(item => {
-    const mappingEntries = Object.entries(item.mapping || {});
-    const mappingHtml = mappingEntries.length > 0
-      ? `<div class="anon-history-mapping">${mappingEntries.map(([original, replacement]) =>
-          `<span class="anon-mapping-entry"><span class="anon-mapping-original">${esc(original)}</span> → ${esc(replacement)}</span>`
-        ).join('')}</div>`
-      : '';
-    return `
+  // The full mapping is shown in the result panel above — keep the history
+  // compact (file + download actions) to avoid duplicating the long list.
+  // Filenames go in data-* attributes (escaped) and clicks are bound below,
+  // so names containing apostrophes/quotes can't break an inline onclick.
+  container.innerHTML = state.anonHistory.map(item => `
     <div class="anon-history-item">
       <div class="anon-history-icon">${item.fileType === 'pptx' ? ICON_PPTX_SMALL : ICON_DOCX_SMALL}</div>
       <div class="anon-history-name" title="${esc(item.fileName)}">${esc(truncateMiddle(item.fileName, 40))}</div>
       <div class="anon-history-actions">
-        <button class="btn btn-primary" onclick="downloadFile('${item.anonFileId}')">Telecharger</button>
-        <button class="btn btn-secondary" onclick="downloadFile('${item.mappingFileId}')">Table de corres.</button>
+        <button class="btn btn-primary" data-dl="${esc(item.anonFileId)}" data-name="${esc(item.anonFileName || '')}">Telecharger</button>
+        <button class="btn btn-secondary" data-dl="${esc(item.mappingFileId)}" data-name="${esc(item.mappingFileName || '')}">Table de corres.</button>
       </div>
-    </div>
-    ${mappingHtml}`;
-  }).join('');
+    </div>`).join('');
+
+  container.querySelectorAll('button[data-dl]').forEach(btn => {
+    btn.addEventListener('click', () => downloadFile(btn.dataset.dl, btn.dataset.name || undefined));
+  });
 }
 
-function downloadFile(fileId) {
-  window.open(`/api/download/${fileId}`, '_blank');
+// Trigger a download via a temporary <a>. Works both in a normal browser and
+// inside the pywebview/WebView2 native window, where window.open('_blank')
+// would pop a blank window instead of downloading.
+//
+// IMPORTANT: only set the `download` attribute when we know the real filename.
+// An empty `download=""` makes the browser name the file after the URL
+// (e.g. the download UUID) instead of honouring the server's
+// Content-Disposition (anonymise_...). When no name is given we omit the
+// attribute entirely so the server-provided filename wins.
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  if (filename) a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function downloadFile(fileId, filename) {
+  triggerDownload(`/api/download/${fileId}`, filename);
 }
 window.downloadFile = downloadFile;
 
@@ -1169,7 +1041,7 @@ function renderRestoreHistory() {
 }
 
 function downloadRestored(fileId) {
-  window.open(`/api/download-restored/${fileId}`, '_blank');
+  triggerDownload(`/api/download-restored/${fileId}`);
 }
 window.downloadRestored = downloadRestored;
 
@@ -1185,7 +1057,7 @@ function _formatBytes(n) {
 
 function enterBatchMode() {
   hide('#anon-preview-actions');
-  hide('#preview-panel');
+  hide('#anon-result-panel');
   hide('#batch-result');
   show('#batch-panel');
 
@@ -1302,7 +1174,7 @@ async function pollBatchStatus(jobId, total) {
 
 $('#btn-batch-download').addEventListener('click', () => {
   if (!state.batchJobId) return;
-  window.open(`/api/batch-download/${state.batchJobId}`, '_blank');
+  triggerDownload(`/api/batch-download/${state.batchJobId}`);
 });
 
 // ============================================================

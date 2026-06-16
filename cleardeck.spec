@@ -70,6 +70,25 @@ tiktoken_ext_hidden = collect_submodules("tiktoken_ext")
 docx_datas = collect_data_files("docx")
 pptx_datas = collect_data_files("pptx")
 
+# pywebview powers the native desktop window. On Windows it loads the
+# winforms/Edge-WebView2 backend through pythonnet (clr), which PyInstaller
+# cannot trace statically — collect everything for the GUI stack.
+webview_datas, webview_binaries, webview_hidden = collect_all("webview")
+_gui_packages = ["clr_loader", "pythonnet", "proxy_tools", "bottle"]
+_gui_datas: list = []
+_gui_binaries: list = []
+_gui_hidden: list = []
+for _pkg in _gui_packages:
+    try:
+        _d, _b, _h = collect_all(_pkg)
+        _gui_datas += _d
+        _gui_binaries += _b
+        _gui_hidden += _h
+    except Exception:
+        # Not installed on this build host (e.g. building on a non-Windows
+        # machine) — skip; the Windows CI runner provides them.
+        pass
+
 datas = (
     transformers_datas
     + tokenizers_datas
@@ -83,6 +102,8 @@ datas = (
     + _extra_datas
     + docx_datas
     + pptx_datas
+    + webview_datas
+    + _gui_datas
     + [
         ("frontend", "frontend"),
         ("backend", "backend"),
@@ -100,6 +121,8 @@ binaries = (
     + protobuf_binaries
     + tiktoken_binaries
     + _extra_binaries
+    + webview_binaries
+    + _gui_binaries
 )
 
 hiddenimports = (
@@ -114,7 +137,12 @@ hiddenimports = (
     + tiktoken_hidden
     + tiktoken_ext_hidden
     + _extra_hidden
+    + webview_hidden
+    + _gui_hidden
     + [
+        "webview.platforms.winforms",
+        "webview.platforms.edgechromium",
+        "clr",
         "backend.main",
         "backend.config",
         "backend.routers.projects",
