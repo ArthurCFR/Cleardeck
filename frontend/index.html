@@ -7,8 +7,30 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <div id="model-status-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1000;padding:10px 16px;background:#fef3c7;color:#92400e;font-size:0.85rem;border-bottom:1px solid #fbbf24;text-align:center;">
-    <span id="model-status-text">Préparation du modèle d'anonymisation…</span>
+  <!-- First-launch model install modal -->
+  <div id="install-modal" class="install-modal" style="display:none;">
+    <div class="install-card" data-state="idle">
+      <div class="camembert-wrap">
+        <svg class="camembert" viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="cb-crust" cx="18" cy="18" r="16"/>
+          <circle class="cb-base" cx="18" cy="18" r="14.5"/>
+          <!-- pie wedge: r + stroke-width/2 = edge, so the stroke fills the disc -->
+          <circle class="cb-fill" cx="18" cy="18" r="7.25"/>
+        </svg>
+        <svg class="camembert-check" viewBox="0 0 36 36" aria-hidden="true">
+          <path d="M11 18.5 L16 23.5 L25.5 13" fill="none" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <h2 class="install-title" id="install-title">Préparer l'anonymiseur</h2>
+      <p class="install-text" id="install-text">
+        Au premier lancement, ClearDeck télécharge le modèle d'IA d'anonymisation
+        (~400 Mo, une seule fois). Tout reste en local sur votre machine.
+      </p>
+
+      <button class="btn btn-primary install-btn" id="install-btn">Lancer l'installation</button>
+    </div>
   </div>
   <div class="app">
     <!-- Sidebar -->
@@ -330,6 +352,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

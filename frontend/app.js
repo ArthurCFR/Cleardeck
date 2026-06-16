@@ -1309,33 +1309,115 @@ $('#btn-batch-download').addEventListener('click', () => {
 // Init
 // ============================================================
 
-async function pollModelHealth() {
-  const banner = document.getElementById('model-status-banner');
-  const text = document.getElementById('model-status-text');
-  if (!banner || !text) return;
+// First-launch install modal. The NER model must be loaded into memory on
+// every launch (~10 s when cached, a ~400 Mo download the very first time).
+// We ask for explicit consent the first time, then auto-load on later launches.
+const MODEL_INSTALLED_FLAG = 'cleardeck_model_installed';
+
+function setInstallState(state, { title, text, btn } = {}) {
+  const card = document.querySelector('#install-modal .install-card');
+  if (card) card.setAttribute('data-state', state);
+  if (title !== undefined) document.getElementById('install-title').textContent = title;
+  if (text !== undefined) document.getElementById('install-text').textContent = text;
+  if (btn !== undefined) document.getElementById('install-btn').textContent = btn;
+}
+
+function showInstallModal() {
+  const m = document.getElementById('install-modal');
+  if (m) m.style.display = 'flex';
+}
+
+function hideInstallModal() {
+  const m = document.getElementById('install-modal');
+  if (!m) return;
+  m.classList.add('install-modal--closing');
+  setTimeout(() => {
+    m.style.display = 'none';
+    m.classList.remove('install-modal--closing');
+  }, 260);
+}
+
+async function fetchHealth() {
   try {
     const res = await fetch('/api/health');
-    const data = await res.json();
-    if (data.model_error) {
-      banner.style.background = '#fee2e2';
-      banner.style.color = '#991b1b';
-      banner.style.borderBottomColor = '#fca5a5';
-      text.textContent = `Erreur de chargement du modèle : ${data.model_error}`;
-      banner.style.display = 'block';
-      return;
-    }
-    if (!data.model_ready) {
-      text.textContent = 'Préparation du modèle d\'anonymisation… (premier lancement : téléchargement ~400 Mo)';
-      banner.style.display = 'block';
-      setTimeout(pollModelHealth, 2000);
-    } else {
-      banner.style.display = 'none';
-    }
+    return await res.json();
   } catch (e) {
-    setTimeout(pollModelHealth, 3000);
+    return null;
   }
 }
 
-pollModelHealth();
+async function pollUntilReady() {
+  setInstallState('installing', {
+    title: 'Installation en cours…',
+    text: localStorage.getItem(MODEL_INSTALLED_FLAG)
+      ? 'Chargement du modèle d\'anonymisation…'
+      : 'Téléchargement du modèle (~400 Mo). Selon votre connexion, cela peut prendre quelques minutes.',
+  });
+  while (true) {
+    const data = await fetchHealth();
+    if (data && data.model_error) {
+      setInstallState('error', {
+        title: 'Échec de l\'installation',
+        text: data.model_error,
+        btn: 'Réessayer',
+      });
+      return;
+    }
+    if (data && data.model_ready) {
+      localStorage.setItem(MODEL_INSTALLED_FLAG, '1');
+      setInstallState('ready', {
+        title: 'Modèle prêt',
+        text: 'L\'anonymiseur est prêt à l\'emploi.',
+      });
+      setTimeout(hideInstallModal, 1100);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+async function startInstall() {
+  try {
+    await fetch('/api/install-model', { method: 'POST' });
+  } catch (e) {
+    /* the poll loop will surface a persistent failure */
+  }
+  pollUntilReady();
+}
+
+async function initModelGate() {
+  const data = await fetchHealth();
+  if (data === null) {
+    setTimeout(initModelGate, 1500);  // server not up yet
+    return;
+  }
+  if (data.model_ready) {
+    hideInstallModal();
+    return;
+  }
+
+  showInstallModal();
+  document.getElementById('install-btn').onclick = startInstall;
+
+  if (data.model_error) {
+    setInstallState('error', {
+      title: 'Échec de l\'installation',
+      text: data.model_error,
+      btn: 'Réessayer',
+    });
+  } else if (localStorage.getItem(MODEL_INSTALLED_FLAG) || data.installing) {
+    // Already installed once (or a load is already running) → auto-load.
+    startInstall();
+  } else {
+    // First ever launch → ask for consent before the ~400 Mo download.
+    setInstallState('idle', {
+      title: 'Préparer l\'anonymiseur',
+      text: 'Au premier lancement, ClearDeck télécharge le modèle d\'IA d\'anonymisation (~400 Mo, une seule fois). Tout reste en local sur votre machine.',
+      btn: 'Lancer l\'installation',
+    });
+  }
+}
+
+initModelGate();
 loadProjectsDropdown();
 loadProjects();
