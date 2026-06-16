@@ -54,6 +54,18 @@ def _safe_download_name(name: str) -> str:
     return name or "document"
 
 
+def _merge_entity_dicts(base: dict | None, extra: dict | None) -> dict | None:
+    """Merge two {category: [entities]} dicts (e.g. project + manual)."""
+    if not extra:
+        return base
+    merged = dict(base) if base else {}
+    for category, values in extra.items():
+        if not values:
+            continue
+        merged[category] = list(merged.get(category, [])) + list(values)
+    return merged or None
+
+
 def _get_file_type(filename: str) -> str:
     if filename.lower().endswith(".docx"):
         return "docx"
@@ -70,6 +82,9 @@ def _load_project_entities(project_id: str | None) -> dict[str, list[str]] | Non
     if not path.exists():
         raise HTTPException(404, f"Projet '{project_id}' non trouvé")
     data = json.loads(path.read_text(encoding="utf-8"))
+    # New client format: a flat term list → all masked as [SENSIBLE_x].
+    if "terms" in data:
+        return {"autres": data["terms"]}
     return data.get("entities")
 
 
@@ -138,13 +153,11 @@ async def anonymize_endpoint(
     filename = file.filename
     file_type = _get_file_type(filename)
 
-    # Load entities
-    entities = None
-    if project_id:
-        entities = _load_project_entities(project_id)
-    elif manual_entities:
+    # Load entities: project + manual identification entities always combine.
+    entities = _load_project_entities(project_id) if project_id else None
+    if manual_entities:
         try:
-            entities = json.loads(manual_entities)
+            entities = _merge_entity_dicts(entities, json.loads(manual_entities))
         except json.JSONDecodeError:
             raise HTTPException(400, "Format JSON invalide")
 
@@ -316,12 +329,13 @@ async def anonymize_batch_endpoint(
         content = await f.read()
         file_data.append((f.filename or "unknown", content))
 
-    entities: dict[str, list[str]] | None = None
-    if project_id:
-        entities = _load_project_entities(project_id)
-    elif manual_entities:
+    # Project + manual identification entities always combine.
+    entities: dict[str, list[str]] | None = (
+        _load_project_entities(project_id) if project_id else None
+    )
+    if manual_entities:
         try:
-            entities = json.loads(manual_entities)
+            entities = _merge_entity_dicts(entities, json.loads(manual_entities))
         except json.JSONDecodeError:
             raise HTTPException(400, "Format JSON invalide pour les entités manuelles")
 

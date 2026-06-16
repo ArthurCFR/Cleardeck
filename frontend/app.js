@@ -9,21 +9,18 @@
 
 const state = {
   currentTab: 'anonymize',
-  projects: [],
-  // Project form
-  editingEntities: null, // { name, client, sector, ... , entities }
-  logoFiles: [],       // File objects for logo upload
-  logoHashes: [],      // computed phash strings
-  logoThumbnail: null, // data URL of first logo for project button
+  projects: [],          // saved clients (kept key name 'projects' for the list)
+  editingClient: null,   // { id, name, terms } being created/edited
   // Anonymize
-  selectedFile: null,
-  batchFiles: [],     // File[] when >= 2 files dropped
-  batchJobId: null,
-  selectedProjectId: '',
-  forgottenTerms: [],  // terms the user adds after seeing the first version
-  docVersion: 1,       // bumped on each regeneration (display only, not the filename)
-  anonResult: null,
-  anonHistory: [],     // { fileName, fileType, anonFileId, mappingFileId, replacements }
+  anonFiles: [],         // all docs added in the selector (1 = single, 2+ = multi)
+  batchJobId: null,      // current ZIP (fast-mode) job
+  manualTerms: [],       // manual identification terms (also fed by client picks)
+  // Each processed document is fully independent: own forgotten terms, version,
+  // result ids and replacements. Single-file = a docs array of length 1.
+  docs: [],            // [{ file, fileName, fileType, anonFileId, mappingFileId,
+                       //    anonFilename, mappingFilename, replacements,
+                       //    forgottenTerms, docVersion, error? }]
+  docIndex: 0,         // which doc the result page is currently showing
   // Restore
   restoreFile: null,
   mappingFile: null,
@@ -157,8 +154,14 @@ $$('.nav-btn').forEach(btn => {
 });
 
 // ============================================================
-// Tab 1: Projects
+// Tab 1: Clients (name + flat list of sensitive terms)
 // ============================================================
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
 
 async function loadProjects() {
   try {
@@ -175,245 +178,99 @@ function renderProjects() {
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">&mdash;</div>
-        <p>Aucun projet. Creez-en un pour commencer.</p>
+        <p>Aucun client. Créez-en un pour réutiliser ses termes lors de l'anonymisation.</p>
       </div>`;
     return;
   }
-
-  container.innerHTML = state.projects.map(p => {
-    const logo = p.logo_thumbnail
-      ? `<img class="project-card-logo" src="${p.logo_thumbnail}" alt="">`
-      : '';
-    return `
-    <div class="project-card" data-id="${p.id}">
+  container.innerHTML = state.projects.map(c => `
+    <div class="project-card" data-id="${esc(c.id)}">
       <div class="card-actions">
-        <button title="Modifier" onclick="editProject('${p.id}')">Edit</button>
-        <button title="Supprimer" onclick="deleteProject('${p.id}')">&times;</button>
+        <button title="Modifier" data-edit="${esc(c.id)}">Edit</button>
+        <button title="Supprimer" data-del="${esc(c.id)}">&times;</button>
       </div>
-      ${logo}
-      <h4>${esc(p.name)}</h4>
-      <p class="client">${esc(p.client)}</p>
-      <p class="meta">${p.entity_count} entité${p.entity_count > 1 ? 's' : ''}${p.logo_count ? ` · ${p.logo_count} logo${p.logo_count > 1 ? 's' : ''}` : ''}</p>
-    </div>`;
-  }).join('');
+      <h4>${esc(c.name)}</h4>
+      <p class="meta">${c.term_count} terme${c.term_count > 1 ? 's' : ''}</p>
+    </div>`).join('');
+  container.querySelectorAll('button[data-edit]').forEach(b =>
+    b.addEventListener('click', () => editClient(b.dataset.edit)));
+  container.querySelectorAll('button[data-del]').forEach(b =>
+    b.addEventListener('click', () => deleteClient(b.dataset.del)));
 }
 
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
+// ── Client form: name + a tag list of terms (like the "oublis" box) ──
 
-// New project form
-$('#btn-new-project').addEventListener('click', () => {
-  // Reset form
-  ['pf-name', 'pf-client', 'pf-subsidiaries', 'pf-contacts', 'pf-notes']
-    .forEach(id => $(`#${id}`).value = '');
-  state.logoFiles = [];
-  state.logoHashes = [];
-  state.logoThumbnail = null;
-  renderLogoPreview();
-  hide('#entity-editor');
+function openClientForm(client) {
+  state.editingClient = client || { id: null, name: '', terms: [] };
+  $('#client-form-title').textContent = client ? 'Modifier le client' : 'Nouveau client';
+  $('#cl-name').value = state.editingClient.name;
+  $('#cl-term-input').value = '';
+  renderClientTerms();
   show('#project-form');
-});
-
-// Logo file upload
-$('#logo-browse').addEventListener('click', (e) => { e.stopPropagation(); $('#pf-logos').click(); });
-$('#logo-drop-zone').addEventListener('click', () => $('#pf-logos').click());
-$('#logo-drop-zone').addEventListener('dragover', e => { e.preventDefault(); $('#logo-drop-zone').classList.add('dragover'); });
-$('#logo-drop-zone').addEventListener('dragleave', () => $('#logo-drop-zone').classList.remove('dragover'));
-$('#logo-drop-zone').addEventListener('drop', e => {
-  e.preventDefault();
-  $('#logo-drop-zone').classList.remove('dragover');
-  if (e.dataTransfer.files.length) {
-    addLogoFiles(Array.from(e.dataTransfer.files));
-  }
-});
-$('#pf-logos').addEventListener('change', () => {
-  addLogoFiles(Array.from($('#pf-logos').files));
-  $('#pf-logos').value = '';
-});
-
-function fileToDataURL(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.readAsDataURL(file);
-  });
+  $('#cl-name').focus();
 }
 
-function addLogoFiles(files) {
-  for (const f of files) {
-    const ext = f.name.toLowerCase().split('.').pop();
-    if (!['png', 'jpg', 'jpeg'].includes(ext)) {
-      alert(`Format non supporte : .${ext}. Utilisez PNG ou JPG.`);
-      continue;
-    }
-    state.logoFiles.push(f);
-  }
-  // Capture first logo as thumbnail
-  if (state.logoFiles.length > 0 && !state.logoThumbnail) {
-    fileToDataURL(state.logoFiles[0]).then(url => { state.logoThumbnail = url; });
-  }
-  if (state.logoFiles.length === 0) state.logoThumbnail = null;
-  renderLogoPreview();
-}
-
-function renderLogoPreview() {
-  const container = $('#logo-preview-list');
-  container.innerHTML = '';
-  state.logoFiles.forEach((f, i) => {
-    const item = document.createElement('div');
-    item.className = 'logo-preview-item';
-    const img = document.createElement('img');
-    img.src = URL.createObjectURL(f);
-    img.alt = f.name;
-    const btn = document.createElement('button');
-    btn.className = 'remove-logo';
-    btn.textContent = '\u00d7';
-    btn.addEventListener('click', () => {
-      state.logoFiles.splice(i, 1);
-      renderLogoPreview();
-    });
-    item.appendChild(img);
-    item.appendChild(btn);
-    container.appendChild(item);
-  });
-}
-
+$('#btn-new-project').addEventListener('click', () => openClientForm(null));
 $('#btn-cancel-project').addEventListener('click', () => {
   hide('#project-form');
+  state.editingClient = null;
 });
 
-$('#btn-cancel-entities').addEventListener('click', () => {
-  hide('#entity-editor');
-  state.editingEntities = null;
-});
-
-// Create project — seeds entities locally from the form, then opens the editor
-$('#btn-generate-entities').addEventListener('click', async () => {
-  const name = $('#pf-name').value.trim();
-  const client = $('#pf-client').value.trim();
-  if (!name || !client) {
-    alert('Nom du projet et nom du client sont requis.');
-    return;
-  }
-
-  showLoading('Création du projet...');
-  try {
-    // Upload logos in parallel with entity seeding if any
-    let logoHashesPromise = Promise.resolve([]);
-    if (state.logoFiles.length > 0) {
-      const logoForm = new FormData();
-      state.logoFiles.forEach(f => logoForm.append('logos', f));
-      logoHashesPromise = api('/api/projects/upload-logos', {
-        method: 'POST',
-        body: logoForm,
-      }).then(r => r.logo_hashes);
-    }
-
-    const [result, logoHashes] = await Promise.all([
-      api('/api/projects/seed-entities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          client,
-          subsidiaries: $('#pf-subsidiaries').value,
-          contacts: $('#pf-contacts').value,
-          notes: $('#pf-notes').value,
-        }),
-      }),
-      logoHashesPromise,
-    ]);
-
-    state.logoHashes = logoHashes;
-
-    state.editingEntities = {
-      name, client,
-      subsidiaries: $('#pf-subsidiaries').value,
-      contacts: $('#pf-contacts').value,
-      notes: $('#pf-notes').value,
-      entities: result.entities,
-      logo_hashes: logoHashes,
-      logo_thumbnail: state.logoThumbnail || '',
-    };
-
-    hide('#project-form');
-    renderEntityEditor();
-    show('#entity-editor');
-  } catch (e) {
-    alert(`Erreur: ${e.message}`);
-  } finally {
-    hideLoading();
-  }
-});
-
-function renderEntityEditor() {
-  if (!state.editingEntities) return;
-  $('#entity-editor-title').textContent = state.editingEntities.name;
-  const ents = state.editingEntities.entities;
-  for (const cat of ['entreprises', 'personnes', 'lieux', 'autres']) {
-    renderTags(cat, ents[cat] || []);
-  }
-}
-
-function renderTags(category, tags) {
-  const container = $(`#tags-${category}`);
-  container.innerHTML = tags.map((t, i) => `
-    <span class="entity-tag">
-      ${esc(t)}
-      <button class="remove-tag" data-cat="${category}" data-idx="${i}">&times;</button>
-    </span>
-  `).join('');
-
-  // Bind remove buttons
-  container.querySelectorAll('.remove-tag').forEach(btn => {
+function renderClientTerms() {
+  const c = state.editingClient;
+  if (!c) return;
+  const container = $('#cl-terms');
+  container.innerHTML = c.terms.map((t, i) => `
+    <span class="entity-tag">${esc(t)}
+      <button class="remove-tag" data-idx="${i}" title="Retirer">&times;</button>
+    </span>`).join('');
+  container.querySelectorAll('.remove-tag').forEach(btn =>
     btn.addEventListener('click', () => {
-      const cat = btn.dataset.cat;
-      const idx = parseInt(btn.dataset.idx);
-      state.editingEntities.entities[cat].splice(idx, 1);
-      renderTags(cat, state.editingEntities.entities[cat]);
-    });
-  });
+      c.terms.splice(parseInt(btn.dataset.idx), 1);
+      renderClientTerms();
+    }));
 }
 
-// Add entity buttons
-$$('.entity-add .btn-add').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const input = btn.previousElementSibling;
-    const cat = btn.closest('.entity-cat').dataset.cat;
-    const val = input.value.trim();
-    if (!val) return;
-    if (!state.editingEntities) return;
-    if (!state.editingEntities.entities[cat]) state.editingEntities.entities[cat] = [];
-    state.editingEntities.entities[cat].push(val);
-    input.value = '';
-    renderTags(cat, state.editingEntities.entities[cat]);
-  });
+// Split a raw input into individual terms (comma or newline separated).
+function splitTerms(raw) {
+  return (raw || '').split(/[,\n;]+/).map(s => s.trim()).filter(Boolean);
+}
+
+// Add `term` to `list` if not already present (case-insensitive). Returns true if added.
+function pushUnique(list, term) {
+  if (list.some(t => t.toLowerCase() === term.toLowerCase())) return false;
+  list.push(term);
+  return true;
+}
+
+function addClientTerm() {
+  const c = state.editingClient;
+  if (!c) return;
+  const input = $('#cl-term-input');
+  splitTerms(input.value).forEach(val => pushUnique(c.terms, val));
+  input.value = '';
+  renderClientTerms();
+  input.focus();
+}
+
+$('#cl-term-add').addEventListener('click', addClientTerm);
+$('#cl-term-input').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addClientTerm(); }
 });
 
-// Enter key on entity inputs
-$$('.entity-add .entity-input').forEach(input => {
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      input.nextElementSibling.click();
-    }
-  });
-});
-
-// Save project
 $('#btn-save-project').addEventListener('click', async () => {
-  if (!state.editingEntities) return;
-  showLoading('Sauvegarde du projet...');
+  const c = state.editingClient;
+  if (!c) return;
+  const name = $('#cl-name').value.trim();
+  if (!name) { alert('Le nom du client est requis.'); return; }
+  showLoading('Enregistrement…');
   try {
     await api('/api/projects/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state.editingEntities),
+      body: JSON.stringify({ id: c.id, name, terms: c.terms }),
     });
-    hide('#entity-editor');
-    state.editingEntities = null;
+    hide('#project-form');
+    state.editingClient = null;
     await loadProjects();
   } catch (e) {
     alert(`Erreur: ${e.message}`);
@@ -422,43 +279,27 @@ $('#btn-save-project').addEventListener('click', async () => {
   }
 });
 
-// Edit project
-window.editProject = async function(id) {
-  showLoading('Chargement...');
+async function editClient(id) {
+  showLoading('Chargement…');
   try {
-    const project = await api(`/api/projects/${id}`);
-    state.editingEntities = {
-      name: project.name,
-      client: project.client,
-      subsidiaries: project.subsidiaries || '',
-      contacts: project.contacts || '',
-      notes: project.notes || '',
-      entities: project.entities,
-      logo_hashes: project.logo_hashes || [],
-      logo_thumbnail: project.logo_thumbnail || '',
-    };
-    state.logoHashes = project.logo_hashes || [];
-    state.logoThumbnail = project.logo_thumbnail || null;
-    hide('#project-form');
-    renderEntityEditor();
-    show('#entity-editor');
+    const c = await api(`/api/projects/${id}`);
+    openClientForm({ id: c.id, name: c.name, terms: (c.terms || []).slice() });
   } catch (e) {
     alert(`Erreur: ${e.message}`);
   } finally {
     hideLoading();
   }
-};
+}
 
-// Delete project
-window.deleteProject = async function(id) {
-  if (!confirm('Supprimer ce projet ?')) return;
+async function deleteClient(id) {
+  if (!confirm('Supprimer ce client ?')) return;
   try {
     await api(`/api/projects/${id}`, { method: 'DELETE' });
     await loadProjects();
   } catch (e) {
     alert(`Erreur: ${e.message}`);
   }
-};
+}
 
 // ============================================================
 // Tab 2: Anonymize
@@ -513,64 +354,56 @@ function clearFiletypePop(dropZoneId) {
   drop.style.background = '';
 }
 
+// Client picker on the anonymize page: each client is a one-click button that
+// injects its saved terms into the manual identification list.
 async function loadProjectsDropdown() {
   try {
-    const projects = await api('/api/projects');
-    const select = $('#anon-project');
-    select.innerHTML = '<option value="">Sans projet</option>';
-    projects.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = `${p.name} (${p.client})`;
-      select.appendChild(opt);
-    });
-
-    // Render project buttons with logo thumbnails
+    const clients = await api('/api/projects');
+    state.projects = clients;
     const btnContainer = $('#project-buttons');
-    if (projects.length === 0) {
+    if (clients.length === 0) {
       hide('#project-selector');
-    } else {
-      show('#project-selector');
-      btnContainer.innerHTML = projects.map(p => {
-        const thumb = p.logo_thumbnail
-          ? `<img class="project-btn-logo" src="${p.logo_thumbnail}" alt="">`
-          : '';
-        return `<button class="project-btn${state.selectedProjectId === p.id ? ' active' : ''}" data-project-id="${p.id}">${thumb}${esc(p.name)}</button>`;
-      }).join('');
+      return;
     }
+    show('#project-selector');
+    btnContainer.innerHTML = clients.map(c =>
+      `<button class="project-btn" data-client-id="${esc(c.id)}">${esc(c.name)}</button>`
+    ).join('');
 
-    // Bind project button clicks (toggle selection)
     btnContainer.querySelectorAll('.project-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const pid = btn.dataset.projectId;
-        if (state.selectedProjectId === pid) {
-          state.selectedProjectId = '';
-          select.value = '';
-          btn.classList.remove('active');
-          updateProjectSelectorLabel();
-        } else {
-          state.selectedProjectId = pid;
-          select.value = pid;
-          btnContainer.querySelectorAll('.project-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          updateProjectSelectorLabel();
-        }
-
-        const manual = $('#manual-entities-section');
-        if (state.selectedProjectId) {
-          hide(manual);
-        } else {
-          show(manual);
-        }
-        updatePreviewButton();
-      });
+      btn.addEventListener('click', () => addClientToManual(btn.dataset.clientId, btn));
     });
   } catch (e) {
     console.error(e);
   }
 }
 
-// Project selector toggle
+// Fetch a client and merge its terms into the manual identification tags.
+async function addClientToManual(clientId, btn) {
+  try {
+    const client = await api(`/api/projects/${clientId}`);
+    let added = 0;
+    for (const t of (client.terms || [])) {
+      if (!state.manualTerms.some(x => x.toLowerCase() === t.toLowerCase())) {
+        state.manualTerms.push(t);
+        added++;
+      }
+    }
+    renderManualTerms();
+    // Open the manual section so the user sees the injected terms.
+    const details = $('#manual-entities-section');
+    if (details) details.open = true;
+    if (btn) {
+      btn.classList.add('added');
+      btn.textContent = `${client.name} ✓`;
+      setTimeout(() => { btn.classList.remove('added'); btn.textContent = client.name; }, 1200);
+    }
+  } catch (e) {
+    alert(`Erreur: ${e.message}`);
+  }
+}
+
+// Client picker toggle
 $('#project-selector-toggle').addEventListener('click', () => {
   const selector = $('#project-selector');
   const btns = $('#project-buttons');
@@ -581,16 +414,6 @@ $('#project-selector-toggle').addEventListener('click', () => {
     show(btns);
   }
 });
-
-function updateProjectSelectorLabel() {
-  const label = $('#project-selector-label');
-  if (state.selectedProjectId) {
-    const proj = state.projects.find(p => p.id === state.selectedProjectId);
-    label.textContent = proj ? proj.name : 'Projet sélectionné';
-  } else {
-    label.textContent = 'Associer un projet (optionnel)';
-  }
-}
 
 // Hero drop zone setup
 function setupHeroDrop(inputId, dropId, nameId, stateKey, opts = {}) {
@@ -614,6 +437,12 @@ function setupHeroDrop(inputId, dropId, nameId, stateKey, opts = {}) {
   });
 
   input.addEventListener('change', () => {
+    // onFiles: caller manages an accumulating list itself (anonymize tab).
+    if (opts.onFiles) {
+      if (input.files.length) opts.onFiles(Array.from(input.files));
+      input.value = '';  // let the same file be re-added after removal
+      return;
+    }
     if (input.files.length >= 2 && opts.onMultiple) {
       opts.onMultiple(Array.from(input.files));
       // Don't set selectedFile / nameEl in multi-file mode
@@ -631,37 +460,102 @@ function setupHeroDrop(inputId, dropId, nameId, stateKey, opts = {}) {
   });
 }
 
-// Setup anon hero drop
-setupHeroDrop('anon-file', 'anon-drop-zone', 'anon-file-name', 'selectedFile', {
-  onFile: (file) => {
-    showFiletypePop(file.name, 'anon-drop-zone');
-    show('#anon-preview-actions');
-    hide('#batch-panel');
-    hide('#anon-result-panel');
-    state.batchFiles = [];
-    state.forgottenTerms = [];
-  },
-  onClear: () => {
-    clearFiletypePop('anon-drop-zone');
-    hide('#anon-preview-actions');
-    state.forgottenTerms = [];
-  },
-  onMultiple: (files) => {
-    // Filter to supported types
-    const supported = files.filter(f => /\.(docx|pptx)$/i.test(f.name));
-    if (supported.length === 0) {
-      alert('Aucun document .docx ou .pptx parmi les fichiers déposés.');
-      return;
-    }
-    if (supported.length > 50) {
-      alert('Maximum 50 fichiers par lot. Seuls les 50 premiers seront traités.');
-      state.batchFiles = supported.slice(0, 50);
-    } else {
-      state.batchFiles = supported;
-    }
-    enterBatchMode();
-  }
+// Setup anon hero drop — accumulates dropped/picked files into a managed list.
+const MAX_ANON_FILES = 50;
+setupHeroDrop('anon-file', 'anon-drop-zone', null, 'selectedFile', {
+  onFiles: (files) => addAnonFiles(files),
 });
+
+// Add files to the selector list (dedup by name+size, keep supported types).
+function addAnonFiles(files) {
+  const supported = files.filter(f => /\.(docx|pptx)$/i.test(f.name));
+  if (supported.length === 0) {
+    alert('Formats acceptés : .docx ou .pptx.');
+    return;
+  }
+  for (const f of supported) {
+    if (!state.anonFiles.some(x => x.name === f.name && x.size === f.size)) {
+      state.anonFiles.push(f);
+    }
+  }
+  if (state.anonFiles.length > MAX_ANON_FILES) {
+    state.anonFiles = state.anonFiles.slice(0, MAX_ANON_FILES);
+    alert(`Maximum ${MAX_ANON_FILES} documents.`);
+  }
+  hide('#anon-result-panel');
+  hide('#batch-panel');
+  renderAnonFileList();
+}
+
+// Render the list of added documents below the drop zone, with remove buttons.
+function renderAnonFileList() {
+  const list = $('#anon-file-list');
+  const n = state.anonFiles.length;
+
+  if (!n) {
+    list.innerHTML = '';
+    hide('#anon-file-list');
+    clearFiletypePop('anon-drop-zone');
+    updateAnonActionButton();
+    return;
+  }
+
+  show('#anon-file-list');
+  // Tint the drop zone after the first file's type (visual cue).
+  showFiletypePop(state.anonFiles[0].name, 'anon-drop-zone');
+
+  list.innerHTML = state.anonFiles.map((f, i) => `
+    <div class="anon-file-row">
+      <span class="anon-file-row-icon">${getSmallIcon(f.name)}</span>
+      <span class="anon-file-row-name" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span class="anon-file-row-size">${_formatBytes(f.size)}</span>
+      <button class="anon-file-remove" data-idx="${i}" title="Retirer ce document" aria-label="Retirer">&times;</button>
+    </div>`).join('');
+
+  list.querySelectorAll('.anon-file-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.anonFiles.splice(parseInt(btn.dataset.idx), 1);
+      renderAnonFileList();
+    });
+  });
+
+  updateAnonActionButton();
+}
+
+// Update the action area: one button for a single doc, a fast-vs-edit choice
+// (with an explanation) for several.
+function updateAnonActionButton() {
+  const n = state.anonFiles.length;
+  const editBtn = $('#btn-anonymize');
+  const zipBtn = $('#btn-anonymize-zip');
+  const hint = $('#anon-actions-hint');
+
+  if (!n) {
+    hide('#anon-preview-actions');
+    editBtn.disabled = true;
+    return;
+  }
+  show('#anon-preview-actions');
+  editBtn.disabled = false;
+
+  if (n === 1) {
+    editBtn.textContent = 'Anonymiser';
+    hide(zipBtn);
+    hide(hint);
+    return;
+  }
+
+  // 2+ documents → offer both modes.
+  editBtn.textContent = `Anonymiser et éditer (${n})`;
+  zipBtn.textContent = `Mode rapide — ZIP (${n})`;
+  show(zipBtn);
+  show(hint);
+  hint.innerHTML =
+    '<strong>Anonymiser et éditer</strong> : une page par document (ajout d’oublis, ' +
+    'régénération, détail des remplacements) — plus complet, mais plus lent.<br>' +
+    '<strong>Mode rapide — ZIP</strong> : tous les documents anonymisés d’un coup dans ' +
+    'une archive, sans édition individuelle — plus rapide.';
+}
 
 // Setup restore hero drop
 setupHeroDrop('restore-file', 'restore-drop-zone', 'restore-file-name', 'restoreFile', {
@@ -716,87 +610,68 @@ $('#restore-browse').addEventListener('click', (e) => { e.stopPropagation(); $('
 $('#mapping-browse').addEventListener('click', (e) => { e.stopPropagation(); $('#restore-mapping').click(); });
 
 function updatePreviewButton() {
-  const hasFile = !!state.selectedFile;
-  $('#btn-anonymize').disabled = !hasFile;
+  // The anonymize button now reflects the queued document list.
+  updateAnonActionButton();
 }
 
-// Manual entity fields update preview button
-['manual-companies', 'manual-persons', 'manual-other'].forEach(id => {
-  $(`#${id}`)?.addEventListener('input', updatePreviewButton);
+// ── Manual identification: a single tag list (like the "oublis" box) ──
+
+function renderManualTerms() {
+  const container = $('#manual-terms');
+  container.innerHTML = state.manualTerms.map((t, i) => `
+    <span class="entity-tag">${esc(t)}
+      <button class="remove-tag" data-idx="${i}" title="Retirer">&times;</button>
+    </span>`).join('');
+  container.querySelectorAll('.remove-tag').forEach(btn =>
+    btn.addEventListener('click', () => {
+      state.manualTerms.splice(parseInt(btn.dataset.idx), 1);
+      renderManualTerms();
+    }));
+  const n = state.manualTerms.length;
+  $('#manual-id-title').textContent = n
+    ? `Identification manuelle (${n})`
+    : 'Identification manuelle';
+}
+
+function addManualTerm() {
+  const input = $('#manual-term-input');
+  splitTerms(input.value).forEach(val => pushUnique(state.manualTerms, val));
+  input.value = '';
+  renderManualTerms();
+  input.focus();
+}
+
+$('#manual-term-add').addEventListener('click', addManualTerm);
+$('#manual-term-input').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); addManualTerm(); }
 });
 
 // Switch to the result view (document ready + add-missed-terms box)
 function showResultPanel() {
   hide('#anon-drop-zone');
+  hide('#anon-file-list');
   hide('#anon-preview-actions');
-  hide('#manual-entities-section');
   hide('#project-selector');
+  // The per-document "oublis" box covers manual additions here, so the
+  // bottom-of-page manual identification section is hidden on result pages.
+  hide('#manual-entities-section');
   show('#anon-result-panel');
 }
 
-// Return to the upload view (e.g. "Anonymiser un autre document")
+// Return to the upload view (e.g. "Anonymiser d'autres documents")
 function showUploadView() {
   hide('#anon-result-panel');
+  hide('#batch-panel');
   show('#anon-drop-zone');
   show('#project-selector');
-  hide('#anon-preview-actions');
+  show('#manual-entities-section');
   clearFiletypePop('anon-drop-zone');
-  // Reset selection
-  state.selectedFile = null;
-  state.forgottenTerms = [];
-  state.anonResult = null;
-  $('#anon-file-name').textContent = '';
+  state.anonFiles = [];
+  state.docs = [];
+  state.docIndex = 0;
+  state.batchJobId = null;
   $('#anon-file').value = '';
-  if (!state.selectedProjectId) show('#manual-entities-section');
-}
-
-// Run anonymization (auto-confirm all detections) and show the result.
-// `extraTerms` are the forgotten terms the user added after the first pass.
-async function runAnonymize(extraTerms) {
-  if (!state.selectedFile) return;
-  const fileName = state.selectedFile.name;
-
-  showLoading('Anonymisation en cours...');
-  try {
-    const formData = new FormData();
-    formData.append('file', state.selectedFile);
-    if (state.selectedProjectId) {
-      formData.append('project_id', state.selectedProjectId);
-    } else {
-      formData.append('manual_entities', JSON.stringify(buildManualEntities()));
-    }
-    formData.append('extra_terms', JSON.stringify(extraTerms || []));
-
-    state.anonResult = await api('/api/anonymize', { method: 'POST', body: formData });
-    const replacements = extractReplacements(state.anonResult.mapping);
-
-    // Update or create the matching history entry (regenerations replace it)
-    const ext = fileName.toLowerCase().split('.').pop();
-    const entry = {
-      fileName,
-      fileType: ext,
-      anonFileId: state.anonResult.anon_file_id,
-      mappingFileId: state.anonResult.mapping_file_id,
-      anonFileName: state.anonResult.anon_filename,
-      mappingFileName: state.anonResult.mapping_filename,
-      replacements,
-    };
-    if (state._currentHistoryId && state.anonHistory[0] &&
-        state.anonHistory[0]._id === state._currentHistoryId) {
-      state.anonHistory[0] = { ...entry, _id: state._currentHistoryId };
-    } else {
-      state._currentHistoryId = `h${Date.now()}`;
-      state.anonHistory.unshift({ ...entry, _id: state._currentHistoryId });
-    }
-
-    renderAnonResult(replacements);
-    renderAnonHistory();
-    showResultPanel();
-  } catch (e) {
-    alert(`Erreur: ${e.message}`);
-  } finally {
-    hideLoading();
-  }
+  renderAnonFileList();
 }
 
 // Pull a flat [{original, placeholder}] list out of the mapping JSON.
@@ -805,44 +680,140 @@ function extractReplacements(mapping) {
   return mapping.entities.map(e => ({
     original: e.original,
     placeholder: e.placeholder,
+    source: e.source,  // "project" (manual/client) | "ai" | "alt_text"
   }));
 }
 
-// First anonymization (from the upload view)
-$('#btn-anonymize').addEventListener('click', () => {
-  state.forgottenTerms = [];
-  state.docVersion = 1;
-  state._currentHistoryId = null;  // this is a brand new document
-  runAnonymize([]);
-});
-
 function buildManualEntities() {
-  const lines = (id) => $(`#${id}`).value.split('\n').map(s => s.trim()).filter(Boolean);
+  // All manual identification terms map to the "autres" category → [SENSIBLE_x].
+  return { autres: state.manualTerms.slice() };
+}
+
+// Anonymize one file and return an independent "doc" result object.
+async function anonymizeFile(file, extraTerms) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('manual_entities', JSON.stringify(buildManualEntities()));
+  formData.append('extra_terms', JSON.stringify(extraTerms || []));
+
+  const res = await api('/api/anonymize', { method: 'POST', body: formData });
   return {
-    entreprises: lines('manual-companies'),
-    personnes: lines('manual-persons'),
-    lieux: [],
-    autres: lines('manual-other'),
+    file,
+    fileName: file.name,
+    fileType: file.name.toLowerCase().split('.').pop(),
+    anonFileId: res.anon_file_id,
+    mappingFileId: res.mapping_file_id,
+    anonFilename: res.anon_filename,
+    mappingFilename: res.mapping_filename,
+    replacements: extractReplacements(res.mapping),
+    forgottenTerms: (extraTerms || []).slice(),
+    docVersion: 1,
   };
 }
 
-// Render the result view after an anonymization pass.
-function renderAnonResult(replacements) {
-  $('#version-badge').textContent = `V${state.docVersion}`;
+function currentDoc() { return state.docs[state.docIndex]; }
 
-  const n = replacements.length;
+// "Edit" mode: process every queued document into its own result page.
+$('#btn-anonymize').addEventListener('click', () => processAnonFiles());
+// "Fast" mode: anonymize all into a single ZIP (no per-doc editing).
+$('#btn-anonymize-zip').addEventListener('click', () => startBatch());
+
+async function processAnonFiles() {
+  const files = state.anonFiles.slice();
+  if (!files.length) return;
+  const multi = files.length > 1;
+
+  if (multi) _showBatchLoadingOverlay(files.length);
+  else showLoading('Anonymisation en cours...');
+
+  state.docs = [];
+  try {
+    for (let i = 0; i < files.length; i++) {
+      if (multi) _updateBatchLoadingOverlay(i, files.length, files[i].name);
+      try {
+        const doc = await anonymizeFile(files[i], []);
+        state.docs.push(doc);
+      } catch (e) {
+        // Don't abort the whole batch on one bad file — record and continue.
+        state.docs.push({
+          fileName: files[i].name,
+          fileType: files[i].name.toLowerCase().split('.').pop(),
+          error: e.message,
+        });
+      }
+    }
+    if (multi) _updateBatchLoadingOverlay(files.length, files.length, '');
+
+    state.docIndex = 0;
+    renderCurrentDoc();
+    showResultPanel();
+  } finally {
+    multi ? _hideBatchLoadingOverlay() : hideLoading();
+  }
+}
+
+// ── Document navigation (dropdown + arrows), shown only for 2+ documents ──
+
+function renderDocNav() {
+  const nav = $('#doc-nav');
+  if (state.docs.length <= 1) { hide(nav); return; }
+  show(nav);
+  const sel = $('#doc-select');
+  sel.innerHTML = state.docs.map((d, i) =>
+    `<option value="${i}">${esc(`${i + 1}/${state.docs.length} — ${d.fileName}`)}</option>`
+  ).join('');
+  sel.value = String(state.docIndex);
+  $('#doc-prev').disabled = state.docIndex === 0;
+  $('#doc-next').disabled = state.docIndex === state.docs.length - 1;
+}
+
+function goToDoc(idx) {
+  if (idx < 0 || idx >= state.docs.length) return;
+  state.docIndex = idx;
+  renderCurrentDoc();
+}
+
+$('#doc-select').addEventListener('change', (e) => goToDoc(parseInt(e.target.value)));
+$('#doc-prev').addEventListener('click', () => goToDoc(state.docIndex - 1));
+$('#doc-next').addEventListener('click', () => goToDoc(state.docIndex + 1));
+
+// ── Render the result page for the current document ──
+
+function renderCurrentDoc() {
+  const doc = currentDoc();
+  if (!doc) return;
+  renderDocNav();
+
+  // Per-file failure state.
+  if (doc.error) {
+    $('#version-badge').style.display = 'none';
+    $('#result-summary').textContent = `Échec de l'anonymisation : ${doc.error}`;
+    $('#result-mapping').innerHTML = '';
+    $('#forgotten-tags').innerHTML = '';
+    $('#btn-download-anon').disabled = true;
+    $('#btn-download-mapping').disabled = true;
+    hide('#btn-regenerate');
+    return;
+  }
+
+  $('#btn-download-anon').disabled = false;
+  $('#btn-download-mapping').disabled = false;
+  $('#version-badge').style.display = '';
+  $('#version-badge').textContent = `V${doc.docVersion}`;
+
+  const n = doc.replacements.length;
   $('#result-summary').textContent = n > 0
     ? `${n} terme${n > 1 ? 's' : ''} masqué${n > 1 ? 's' : ''}. Téléchargez le document, ou complétez les oublis ci-dessous.`
     : "Aucun terme détecté. Ajoutez les termes à masquer ci-dessous, puis régénérez.";
 
-  // Categorise: image alt texts (placeholder [ALT_x]) get their own discreet,
-  // collapsible section; the rest splits into "added by hand" vs "found by AI".
-  const manualSet = new Set(state.forgottenTerms.map(t => t.toLowerCase()));
-  const isAlt = (r) => (r.placeholder || '').startsWith('[ALT_');
-  const alt = replacements.filter(isAlt);
-  const rest = replacements.filter(r => !isAlt(r));
-  const manual = rest.filter(r => manualSet.has((r.original || '').toLowerCase()));
-  const ai = rest.filter(r => !manualSet.has((r.original || '').toLowerCase()));
+  // Categorise by the mapping source: alt texts get their own collapsible
+  // section; manual/client/forgotten terms (source "project") are "added by
+  // hand"; everything else is AI-detected.
+  const isAlt = (r) => (r.placeholder || '').startsWith('[ALT_') || r.source === 'alt_text';
+  const alt = doc.replacements.filter(isAlt);
+  const rest = doc.replacements.filter(r => !isAlt(r));
+  const manual = rest.filter(r => r.source === 'project');
+  const ai = rest.filter(r => r.source !== 'project');
 
   const renderList = (items) => `<div class="result-mapping-list">${items.map(r =>
     `<span class="anon-mapping-entry"><span class="anon-mapping-original">${esc(r.original)}</span> → ${esc(r.placeholder)}</span>`
@@ -855,7 +826,6 @@ function renderAnonResult(replacements) {
        </div>`
     : '';
 
-  // Alt texts: collapsed by default, expand to read.
   const renderAltGroup = (items) => items.length
     ? `<details class="mapping-details">
          <summary class="mapping-details-summary">Textes alternatifs d’images · ${items.length}</summary>
@@ -871,11 +841,13 @@ function renderAnonResult(replacements) {
   renderForgottenTags();
 }
 
-// ── Forgotten terms (missed by the AI) ──
+// ── Forgotten terms (missed by the AI) — operate on the current document ──
 
 function renderForgottenTags() {
+  const doc = currentDoc();
+  if (!doc || doc.error) return;
   const container = $('#forgotten-tags');
-  container.innerHTML = state.forgottenTerms.map((t, i) => `
+  container.innerHTML = doc.forgottenTerms.map((t, i) => `
     <span class="entity-tag">
       ${esc(t)}
       <button class="remove-tag" data-idx="${i}" title="Retirer">&times;</button>
@@ -883,22 +855,20 @@ function renderForgottenTags() {
   `).join('');
   container.querySelectorAll('.remove-tag').forEach(btn => {
     btn.addEventListener('click', () => {
-      state.forgottenTerms.splice(parseInt(btn.dataset.idx), 1);
+      doc.forgottenTerms.splice(parseInt(btn.dataset.idx), 1);
       renderForgottenTags();
     });
   });
   // Show "Régénérer" as soon as there is at least one term to add
-  $('#btn-regenerate').style.display = state.forgottenTerms.length ? '' : 'none';
+  $('#btn-regenerate').style.display = doc.forgottenTerms.length ? '' : 'none';
 }
 
 function addForgottenTerm() {
+  const doc = currentDoc();
+  if (!doc || doc.error) return;
   const input = $('#forgotten-input');
-  const val = input.value.trim();
-  if (!val) return;
-  // De-dup case-insensitively (matching is case-insensitive anyway)
-  if (!state.forgottenTerms.some(t => t.toLowerCase() === val.toLowerCase())) {
-    state.forgottenTerms.push(val);
-  }
+  // Comma/newline separated → several terms at once.
+  splitTerms(input.value).forEach(val => pushUnique(doc.forgottenTerms, val));
   input.value = '';
   renderForgottenTags();
 }
@@ -908,17 +878,30 @@ $('#forgotten-input').addEventListener('keypress', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); addForgottenTerm(); }
 });
 
-$('#btn-regenerate').addEventListener('click', () => {
-  if (!state.forgottenTerms.length) return;
-  state.docVersion += 1;
-  runAnonymize(state.forgottenTerms);
+// Regenerate the current document (only it) with its forgotten terms.
+$('#btn-regenerate').addEventListener('click', async () => {
+  const doc = currentDoc();
+  if (!doc || !doc.forgottenTerms.length) return;
+  showLoading('Régénération en cours...');
+  try {
+    const updated = await anonymizeFile(doc.file, doc.forgottenTerms);
+    updated.docVersion = doc.docVersion + 1;
+    state.docs[state.docIndex] = updated;
+    renderCurrentDoc();
+  } catch (e) {
+    alert(`Erreur: ${e.message}`);
+  } finally {
+    hideLoading();
+  }
 });
 
 $('#btn-download-anon').addEventListener('click', () => {
-  if (state.anonResult) downloadFile(state.anonResult.anon_file_id, state.anonResult.anon_filename);
+  const doc = currentDoc();
+  if (doc && doc.anonFileId) downloadFile(doc.anonFileId, doc.anonFilename);
 });
 $('#btn-download-mapping').addEventListener('click', () => {
-  if (state.anonResult) downloadFile(state.anonResult.mapping_file_id, state.anonResult.mapping_filename);
+  const doc = currentDoc();
+  if (doc && doc.mappingFileId) downloadFile(doc.mappingFileId, doc.mappingFilename);
 });
 $('#btn-new-doc').addEventListener('click', showUploadView);
 
@@ -926,31 +909,6 @@ function truncateMiddle(str, maxLen) {
   if (str.length <= maxLen) return str;
   const half = Math.floor((maxLen - 3) / 2);
   return str.slice(0, half) + '...' + str.slice(-half);
-}
-
-function renderAnonHistory() {
-  const container = $('#anon-history');
-  if (!state.anonHistory.length) {
-    container.innerHTML = '';
-    return;
-  }
-  // The full mapping is shown in the result panel above — keep the history
-  // compact (file + download actions) to avoid duplicating the long list.
-  // Filenames go in data-* attributes (escaped) and clicks are bound below,
-  // so names containing apostrophes/quotes can't break an inline onclick.
-  container.innerHTML = state.anonHistory.map(item => `
-    <div class="anon-history-item">
-      <div class="anon-history-icon">${item.fileType === 'pptx' ? ICON_PPTX_SMALL : ICON_DOCX_SMALL}</div>
-      <div class="anon-history-name" title="${esc(item.fileName)}">${esc(truncateMiddle(item.fileName, 40))}</div>
-      <div class="anon-history-actions">
-        <button class="btn btn-primary" data-dl="${esc(item.anonFileId)}" data-name="${esc(item.anonFileName || '')}">Telecharger</button>
-        <button class="btn btn-secondary" data-dl="${esc(item.mappingFileId)}" data-name="${esc(item.mappingFileName || '')}">Table de corres.</button>
-      </div>
-    </div>`).join('');
-
-  container.querySelectorAll('button[data-dl]').forEach(btn => {
-    btn.addEventListener('click', () => downloadFile(btn.dataset.dl, btn.dataset.name || undefined));
-  });
 }
 
 // Trigger a download via a temporary <a>. Works both in a normal browser and
@@ -1046,7 +1004,7 @@ function downloadRestored(fileId) {
 window.downloadRestored = downloadRestored;
 
 // ============================================================
-// Batch mode (multi-file upload + ZIP download)
+// Multi-document progress overlay (shared by processAnonFiles)
 // ============================================================
 
 function _formatBytes(n) {
@@ -1054,38 +1012,6 @@ function _formatBytes(n) {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-function enterBatchMode() {
-  hide('#anon-preview-actions');
-  hide('#anon-result-panel');
-  hide('#batch-result');
-  show('#batch-panel');
-
-  $('#batch-file-count').textContent = state.batchFiles.length;
-  const list = $('#batch-file-list');
-  list.innerHTML = '';
-  state.batchFiles.forEach(f => {
-    const li = document.createElement('li');
-    li.style.display = 'flex';
-    li.style.justifyContent = 'space-between';
-    li.style.padding = '4px 0';
-    li.style.borderBottom = '1px solid #e5e7eb';
-    li.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%;">${f.name}</span><span style="color:#6b7280;">${_formatBytes(f.size)}</span>`;
-    list.appendChild(li);
-  });
-
-  $('#btn-batch-start').disabled = false;
-  $('#btn-batch-start').textContent = "Lancer l'anonymisation du lot";
-}
-
-function exitBatchMode() {
-  state.batchFiles = [];
-  state.batchJobId = null;
-  hide('#batch-panel');
-  $('#anon-file').value = '';
-}
-
-$('#btn-batch-cancel').addEventListener('click', exitBatchMode);
 
 function _showBatchLoadingOverlay(total) {
   showLoading(`Anonymisation du lot — 0 / ${total}`);
@@ -1108,17 +1034,15 @@ function _hideBatchLoadingOverlay() {
   hideLoading();
 }
 
-$('#btn-batch-start').addEventListener('click', async () => {
-  if (!state.batchFiles.length) return;
-  const btn = $('#btn-batch-start');
-  btn.disabled = true;
-  btn.textContent = 'Anonymisation en cours...';
+// ── Fast mode (ZIP): one server-side batch job, no per-doc editing ──
 
-  _showBatchLoadingOverlay(state.batchFiles.length);
+async function startBatch() {
+  if (state.anonFiles.length < 2) return;
+  _showBatchLoadingOverlay(state.anonFiles.length);
 
   const form = new FormData();
-  state.batchFiles.forEach(f => form.append('files', f));
-  if (state.selectedProjectId) form.append('project_id', state.selectedProjectId);
+  state.anonFiles.forEach(f => form.append('files', f));
+  form.append('manual_entities', JSON.stringify(buildManualEntities()));
 
   try {
     const res = await fetch('/api/anonymize-batch', { method: 'POST', body: form });
@@ -1132,10 +1056,8 @@ $('#btn-batch-start').addEventListener('click', async () => {
   } catch (e) {
     _hideBatchLoadingOverlay();
     alert(`Erreur: ${e.message}`);
-    btn.disabled = false;
-    btn.textContent = "Lancer l'anonymisation du lot";
   }
-});
+}
 
 async function pollBatchStatus(jobId, total) {
   while (true) {
@@ -1151,21 +1073,24 @@ async function pollBatchStatus(jobId, total) {
 
     if (data.status === 'completed') {
       _hideBatchLoadingOverlay();
-      show('#batch-result');
+      // Hide the selection UI, show the ZIP result.
+      hide('#anon-drop-zone');
+      hide('#anon-file-list');
+      hide('#anon-preview-actions');
+      hide('#project-selector');
+      hide('#manual-entities-section');
+      show('#batch-panel');
       const errCount = (data.file_errors || []).length;
       const skipCount = (data.skipped || []).length;
-      let summary = `${data.done - errCount - skipCount} document(s) anonymise(s).`;
+      let summary = `${data.done - errCount - skipCount} document(s) anonymisé(s).`;
       if (errCount) summary += ` ${errCount} erreur(s).`;
-      if (skipCount) summary += ` ${skipCount} ignore(s) (format non supporte).`;
+      if (skipCount) summary += ` ${skipCount} ignoré(s) (format non supporté).`;
       $('#batch-result-summary').textContent = summary;
-      $('#btn-batch-start').disabled = true;
       return;
     }
     if (data.status === 'failed') {
       _hideBatchLoadingOverlay();
       alert(`Anonymisation echouee: ${data.error}`);
-      $('#btn-batch-start').disabled = false;
-      $('#btn-batch-start').textContent = "Lancer l'anonymisation du lot";
       return;
     }
     await new Promise(r => setTimeout(r, 800));
@@ -1173,9 +1098,9 @@ async function pollBatchStatus(jobId, total) {
 }
 
 $('#btn-batch-download').addEventListener('click', () => {
-  if (!state.batchJobId) return;
-  triggerDownload(`/api/batch-download/${state.batchJobId}`);
+  if (state.batchJobId) triggerDownload(`/api/batch-download/${state.batchJobId}`);
 });
+$('#btn-batch-reset').addEventListener('click', showUploadView);
 
 // ============================================================
 // Init
@@ -1293,3 +1218,4 @@ async function initModelGate() {
 initModelGate();
 loadProjectsDropdown();
 loadProjects();
+renderManualTerms();

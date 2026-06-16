@@ -24,6 +24,13 @@ from .entity_merger import merge_entities, CATEGORY_LABELS
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
 
+def _term_present(term: str, text: str) -> bool:
+    """True if `term` occurs in `text` (case-insensitive, word-boundary aware)."""
+    return re.search(
+        r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.IGNORECASE
+    ) is not None
+
+
 def _detect_emails(text: str) -> list[dict]:
     """Detect email addresses in text via regex.
 
@@ -266,6 +273,17 @@ def anonymize(
     if name_for_detection:
         text_parts.append(name_for_detection)
     all_text = "\n".join(text_parts)
+
+    # Keep only the manual/client/project terms that actually occur in the
+    # document (or its filename). Otherwise the mapping would list terms that
+    # were never masked — confusing in the result view.
+    if project_entities:
+        present: dict[str, list[str]] = {}
+        for category, values in project_entities.items():
+            kept = [v for v in (values or []) if v and _term_present(v, all_text)]
+            if kept:
+                present[category] = kept
+        project_entities = present or None
 
     all_project_entities = []
     if project_entities:
