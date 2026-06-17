@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClearDeck — Anonymisation de documents</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <title>ClearDeck · Anonymisation de documents</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
   <!-- First-launch model install modal -->
@@ -23,21 +24,97 @@
         </svg>
       </div>
 
-      <h2 class="install-title" id="install-title">Préparer l'anonymiseur</h2>
+      <h2 class="install-title" id="install-title">Charger le modèle d'IA</h2>
       <p class="install-text" id="install-text">
-        Au premier lancement, ClearDeck télécharge le modèle d'IA d'anonymisation
-        (~400 Mo, une seule fois). Tout reste en local sur votre machine.
+        ClearDeck utilise <strong>CamemBERT</strong>, un modèle d'IA de reconnaissance
+        d'entités en français, téléchargé depuis Hugging Face (~400 Mo, une seule fois).
+        Tout reste en local sur votre machine.
       </p>
 
-      <button class="btn btn-primary install-btn" id="install-btn">Lancer l'installation</button>
+      <button class="btn btn-primary install-btn" id="install-btn">Charger le modèle</button>
+
+      <div class="install-hf">
+        <span>Modèle hébergé sur</span>
+        <img src="/static/huggingface.png" alt="Hugging Face">
+      </div>
     </div>
   </div>
+
+  <!-- "Comment ça marche" — explanation modal -->
+  <div id="howto-modal" class="howto-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="howto-title">
+    <div class="howto-card">
+      <button class="howto-close" id="howto-close" type="button" aria-label="Fermer">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+
+      <h2 class="howto-title" id="howto-title">Comment fonctionne l'anonymisation</h2>
+      <p class="howto-lead">
+        ClearDeck repère les informations sensibles avec un modèle d'intelligence
+        artificielle qui s'exécute <strong>entièrement sur votre machine</strong>.
+      </p>
+
+      <div class="howto-section">
+        <h3>Le modèle d'IA</h3>
+        <p>
+          <strong>CamemBERT-NER</strong> (<code>Jean-Baptiste/camembert-ner</code>),
+          basé sur CamemBERT, l'architecture <em>RoBERTa</em> entraînée pour le
+          français. Environ <strong>110 millions de paramètres</strong> (~400 Mo),
+          spécialisé dans la <em>reconnaissance d'entités nommées</em> (NER) et
+          affiné sur le corpus WikiNER-fr.
+        </p>
+      </div>
+
+      <div class="howto-section">
+        <h3>Ce qu'il détecte</h3>
+        <ul class="howto-list">
+          <li><strong>Personnes</strong> : noms et prénoms (PER)</li>
+          <li><strong>Entreprises &amp; organisations</strong> (ORG)</li>
+          <li><strong>Lieux</strong> : villes, régions, adresses (LOC)</li>
+          <li><strong>Autres entités</strong> : marques, projets… (MISC)</li>
+          <li><strong>Adresses e-mail</strong> : détectées par règle dédiée</li>
+          <li><strong>Termes clients</strong> : votre liste, en correspondance exacte</li>
+        </ul>
+      </div>
+
+      <div class="howto-section">
+        <h3>Réglé pour protéger (biais « sur-anonymiser »)</h3>
+        <p>
+          Le seuil de confiance est volontairement abaissé : mieux vaut masquer un
+          terme inoffensif que laisser fuiter une donnée identifiante. Les
+          candidats moins sûrs vous sont proposés en relecture, et la détection
+          s'applique aussi <strong>au nom du fichier</strong>.
+        </p>
+      </div>
+
+      <div class="howto-section">
+        <h3>Précision (F1 sur WikiNER-fr)</h3>
+        <div class="howto-metrics">
+          <span><b>94,8 %</b> Personnes</span>
+          <span><b>89,6 %</b> Lieux</span>
+          <span><b>81,8 %</b> Organisations</span>
+          <span><b>81,5 %</b> Autres</span>
+        </div>
+        <p class="howto-note">
+          Aucun modèle n'est parfait : certains noms propres rares peuvent
+          échapper à la détection. Ajoutez-les via « Un oubli ? » pour régénérer
+          le document.
+        </p>
+      </div>
+
+      <div class="howto-hf">
+        <span>modèle téléchargé depuis</span>
+        <img src="/static/huggingface.png" alt="Hugging Face">
+      </div>
+    </div>
+  </div>
+
   <div class="app">
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
         <h1 class="logo">ClearDeck</h1>
         <p class="tagline">Anonymisation locale</p>
+        <img class="sidebar-brand" src="/static/ai-builders-blanc.png" alt="AI Builders">
       </div>
       <nav class="nav">
         <button class="nav-btn" data-tab="projects">
@@ -54,7 +131,16 @@
         </button>
       </nav>
       <div class="sidebar-footer">
-        <p class="security-note">100% local — aucun document ne quitte votre machine</p>
+        <button class="info-btn" id="btn-howto" type="button" aria-haspopup="dialog">
+          <span class="info-btn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </span>
+          <span class="info-btn-text">
+            <span class="info-btn-title">Info</span>
+            <span class="info-btn-sub">Comment ça marche</span>
+          </span>
+        </button>
+        <p class="security-note">100 % local · aucun document ne quitte votre machine</p>
       </div>
     </aside>
 
@@ -79,7 +165,7 @@
           </div>
           <div class="form-group">
             <label for="cl-term-input">Termes à anonymiser</label>
-            <p class="hint" style="margin:2px 0 8px;">Saisissez un terme et appuyez sur Entrée — personnes, entreprises, noms de projet, termes sensibles…</p>
+            <p class="hint" style="margin:2px 0 8px;">Saisissez un terme et appuyez sur Entrée. Personnes, entreprises, noms de projet, termes sensibles…</p>
             <div class="forgotten-input-row">
               <input type="text" id="cl-term-input" class="forgotten-input" placeholder="Ex : Jean Dupont, Helios, BGPN…">
               <button class="btn btn-small btn-add" id="cl-term-add">Ajouter</button>
@@ -112,7 +198,7 @@
           <svg class="hero-watermark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.5"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
           <div class="hero-drop-content">
             <p class="hero-drop-text">Glissez un ou plusieurs documents ici</p>
-            <p class="hero-drop-sub">ou <button class="btn-link" id="anon-browse">parcourir</button> — .docx ou .pptx (jusqu'a 50 a la fois)</p>
+            <p class="hero-drop-sub">ou <button class="btn-link" id="anon-browse">parcourir</button> · .docx ou .pptx (jusqu'a 50 a la fois)</p>
           </div>
         </div>
 
@@ -122,7 +208,7 @@
         <div class="anon-actions" id="anon-preview-actions" style="display:none;">
           <div class="anon-actions-buttons">
             <button class="btn btn-primary" id="btn-anonymize" disabled>Anonymiser</button>
-            <button class="btn btn-secondary" id="btn-anonymize-zip" style="display:none;">Mode rapide — ZIP</button>
+            <button class="btn btn-secondary" id="btn-anonymize-zip" style="display:none;">Mode rapide ZIP</button>
           </div>
           <p class="anon-actions-hint" id="anon-actions-hint" style="display:none;"></p>
         </div>
@@ -167,6 +253,13 @@
             </div>
           </div>
 
+          <!-- Shown after a successful regeneration: confirms the new version
+               is ready and that it must be re-downloaded. -->
+          <div class="regen-success" id="regen-success" style="display:none;" role="status">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+            <span id="regen-success-text"></span>
+          </div>
+
           <div class="result-actions">
             <span class="version-badge" id="version-badge" title="Version du document">V1</span>
             <button class="btn btn-primary" id="btn-download-anon">Télécharger le document</button>
@@ -202,7 +295,7 @@
         <details class="manual-id" id="manual-entities-section">
           <summary class="manual-id-summary">
             <span id="manual-id-title">Identification manuelle</span>
-            <span class="manual-id-hint">— ajoutez explicitement certaines entités, personnes ou entreprises que l'IA pourrait omettre</span>
+            <span class="manual-id-hint">(ajoutez explicitement certaines entités, personnes ou entreprises que l'IA pourrait omettre)</span>
           </summary>
           <div class="manual-id-body">
             <div class="forgotten-input-row">
@@ -223,7 +316,7 @@
           <svg class="hero-watermark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           <div class="hero-drop-content">
             <p class="hero-drop-text">Glissez le document anonymise</p>
-            <p class="hero-drop-sub">ou <button class="btn-link" id="restore-browse">parcourir</button> — .docx ou .pptx</p>
+            <p class="hero-drop-sub">ou <button class="btn-link" id="restore-browse">parcourir</button> · .docx ou .pptx</p>
             <p class="file-name" id="restore-file-name"></p>
           </div>
         </div>
@@ -232,7 +325,7 @@
         <div id="restore-mapping-section" class="restore-mapping-section" style="display:none;">
           <div class="file-drop" id="mapping-drop-zone">
             <input type="file" id="restore-mapping" accept=".json" hidden>
-            <p class="drop-text">Table de correspondance (.json) — glissez ici ou <button class="btn-link" id="mapping-browse">parcourir</button></p>
+            <p class="drop-text">Table de correspondance (.json) · glissez ici ou <button class="btn-link" id="mapping-browse">parcourir</button></p>
             <p class="file-name" id="restore-mapping-name"></p>
           </div>
           <div class="form-actions">
@@ -299,6 +392,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=18"></script>
 </body>
 </html>

@@ -7,15 +7,18 @@
   --sidebar-w: 240px;
 
   /* Monochrome */
-  --black: #0A0A0A;
+  --black: #004E98;
   --white: #FFFFFF;
+  /* Brand colour used for primary actions / dark surfaces */
+  --brand: #004E98;
+  --brand-hover: #003B73;
   --bg-main: #F5F5F2;
   --bg-card: #FFFFFF;
   --text-primary: #111111;
   --text-secondary: #555555;
   --text-muted: #888888;
   --text-light: #BBBBBB;
-  --text-sidebar: #777777;
+  --text-sidebar: rgba(255, 255, 255, 0.78);
   --border: #E0E0E0;
   --border-strong: #111111;
 
@@ -90,6 +93,15 @@ body {
   color: #FFFFFF;
   letter-spacing: -0.5px;
   line-height: 1.1;
+}
+
+.sidebar-brand {
+  display: block;
+  width: 120px;
+  max-width: 100%;
+  height: auto;
+  margin-top: 18px;
+  opacity: 0.9;
 }
 
 .tagline {
@@ -241,12 +253,12 @@ body {
 }
 
 .btn-primary {
-  background: var(--text-primary);
+  background: var(--brand);
   color: var(--white);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #333333;
+  background: var(--brand-hover);
 }
 
 .btn-secondary {
@@ -541,9 +553,9 @@ body {
 }
 
 .project-btn.active {
-  background: var(--text-primary);
+  background: var(--brand);
   color: var(--white);
-  border-color: var(--text-primary);
+  border-color: var(--brand);
 }
 
 /* ───────────────────── Drop Zone Corner Icon (real Office icons) ───────────────────── */
@@ -838,7 +850,7 @@ body {
 }
 
 .btn-add {
-  background: var(--text-primary);
+  background: var(--brand);
   color: var(--white);
   border: none;
   cursor: pointer;
@@ -850,7 +862,7 @@ body {
 }
 
 .btn-add:hover {
-  background: #333333;
+  background: var(--brand-hover);
 }
 
 /* ───────────────────── Triage Full Page ───────────────────── */
@@ -1789,6 +1801,23 @@ body {
 .install-card[data-state="installing"] .install-btn,
 .install-card[data-state="ready"] .install-btn { display: none; }
 
+.install-hf {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+}
+
+.install-hf img {
+  height: 18px;
+  width: auto;
+}
+
 .project-btn.added {
   background: var(--green-bg);
   border-color: var(--green-border);
@@ -2042,6 +2071,48 @@ body {
   padding: 4px 11px;
 }
 
+/* Regeneration success banner — confirms the new version is ready and that it
+   must be re-downloaded. */
+.regen-success {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--green-bg);
+  border: 1px solid var(--green-border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  color: #2E7D32;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  animation: regen-pop 220ms ease;
+}
+.regen-success svg {
+  flex-shrink: 0;
+}
+@keyframes regen-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Call-to-action pulse: draws the eye to the download button while the current
+   version has not been saved yet. */
+.btn-attention {
+  animation: btn-attention-pulse 1.8s ease-in-out infinite;
+}
+.btn-attention:hover {
+  animation: none;
+}
+@keyframes btn-attention-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 78, 152, 0.45); }
+  50%      { box-shadow: 0 0 0 6px rgba(0, 78, 152, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-attention { animation: none; }
+  .regen-success { animation: none; }
+}
+
 /* Highlighted "missed terms" box — the focal point of the screen */
 .forgotten-box {
   background: var(--orange-bg);
@@ -2177,4 +2248,192 @@ body {
 
 .mapping-details .result-mapping-list {
   padding: 12px 14px;
+}
+
+/* ============================================================
+   Sidebar "Info / Comment ça marche" button
+   ============================================================ */
+.info-btn {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-sidebar);
+  font-family: 'Archivo', sans-serif;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+.info-btn:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.info-btn-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+}
+.info-btn:hover .info-btn-icon { opacity: 1; }
+.info-btn-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.info-btn-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.info-btn-sub {
+  font-size: 0.62rem;
+  letter-spacing: 0.3px;
+  opacity: 0.7;
+}
+
+/* ============================================================
+   "Comment ça marche" explanation modal
+   ============================================================ */
+.howto-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.55);
+  backdrop-filter: blur(3px);
+  animation: install-fade 200ms ease;
+}
+.howto-modal.howto-modal--closing {
+  animation: install-fade 220ms ease reverse forwards;
+}
+.howto-card {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 34px 34px 28px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+  /* Transparent scrollbar track (no white gutter), discreet thumb. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.howto-card::-webkit-scrollbar {
+  width: 8px;
+}
+.howto-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+.howto-card::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+.howto-card::-webkit-scrollbar-thumb:hover {
+  background: var(--text-light);
+}
+.howto-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+.howto-close:hover {
+  color: var(--text-primary);
+  background: var(--border);
+}
+.howto-title {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin: 0 28px 10px 0;
+}
+.howto-lead {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 22px;
+}
+.howto-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  margin-bottom: 18px;
+}
+.howto-section h3 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--brand);
+  margin-bottom: 8px;
+}
+.howto-section p {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.howto-section code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.82em;
+  background: var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+.howto-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.howto-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+.howto-metrics span {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.howto-metrics b {
+  color: var(--text-primary);
+  margin-right: 4px;
+}
+.howto-note {
+  font-size: 0.82rem !important;
+  color: var(--text-muted) !important;
+}
+.howto-hf {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+}
+.howto-hf img {
+  height: 16px;
+  width: auto;
 }

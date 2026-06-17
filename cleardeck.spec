@@ -220,7 +220,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,                 # add a .ico path here if/when we have one
+    icon="cleardeck.ico",      # Windows exe + window/taskbar icon
 )
 
 coll = COLLECT(

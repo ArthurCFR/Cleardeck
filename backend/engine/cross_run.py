@@ -128,10 +128,16 @@ def _find_replacements(full_text: str, entities_sorted: list[tuple[str, str]]) -
     replacements = []
 
     for original, placeholder in entities_sorted:
-        # Use regex with word boundaries for clean matching
-        # re.escape handles special chars in entity names
+        # Use regex with word boundaries for clean matching.
+        # re.escape handles special chars in entity names.
+        # Boundary uses [^\W_] (alphanumeric, underscore EXCLUDED) instead of
+        # \w so that underscores count as word separators. Filenames and
+        # snake_case routinely glue terms together with "_" (e.g.
+        # "Synthese_IA_LaPoste_mois"); with plain \w the lookarounds treat the
+        # underscore as part of the word and the term is never masked. Treating
+        # "_" as a boundary keeps the over-anonymisation (secure) bias.
         pattern = re.compile(
-            r"(?<!\w)" + re.escape(original) + r"(?!\w)",
+            r"(?<![^\W_])" + re.escape(original) + r"(?![^\W_])",
             re.IGNORECASE,
         )
         for m in pattern.finditer(full_text):
@@ -272,6 +278,16 @@ def replace_entities_in_paragraph_pptx(paragraph, entities_sorted: list[tuple[st
         r_elem = run._r
         p_elem.remove(r_elem)
 
+    # The OOXML schema for <a:p> is strict about child order: an optional
+    # <a:pPr> first, then run-level content (<a:r>/<a:br>/<a:fld>), then an
+    # optional <a:endParaRPr> which MUST be the last child. Appending the new
+    # runs with p_elem.append() puts them *after* <a:endParaRPr>, which is
+    # schema-invalid. python-pptx still reads the text (lenient parser), but
+    # PowerPoint is strict and silently drops the whole paragraph/shape — the
+    # block "disappears" with no placeholder. Insert before <a:endParaRPr>
+    # (falling back to append when there is none) to preserve a valid order.
+    end_pr = p_elem.find(f'{{{a_ns}}}endParaRPr')
+
     # Add new runs
     for text, format_source in new_runs_data:
         # Create a new <a:r> element
@@ -283,7 +299,10 @@ def replace_entities_in_paragraph_pptx(paragraph, entities_sorted: list[tuple[st
         else:
             t_elem = etree.SubElement(new_r, f'{{{a_ns}}}t')
             t_elem.text = text
-        p_elem.append(new_r)
+        if end_pr is not None:
+            end_pr.addprevious(new_r)
+        else:
+            p_elem.append(new_r)
 
 
 def replace_entities_in_text(text: str, entities_sorted: list[tuple[str, str]]) -> str:

@@ -177,7 +177,7 @@ function renderProjects() {
   if (!state.projects.length) {
     container.innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">&mdash;</div>
+        <div class="empty-icon">·</div>
         <p>Aucun client. Créez-en un pour réutiliser ses termes lors de l'anonymisation.</p>
       </div>`;
     return;
@@ -547,14 +547,14 @@ function updateAnonActionButton() {
 
   // 2+ documents → offer both modes.
   editBtn.textContent = `Anonymiser et éditer (${n})`;
-  zipBtn.textContent = `Mode rapide — ZIP (${n})`;
+  zipBtn.textContent = `Mode rapide ZIP (${n})`;
   show(zipBtn);
   show(hint);
   hint.innerHTML =
     '<strong>Anonymiser et éditer</strong> : une page par document (ajout d’oublis, ' +
-    'régénération, détail des remplacements) — plus complet, mais plus lent.<br>' +
-    '<strong>Mode rapide — ZIP</strong> : tous les documents anonymisés d’un coup dans ' +
-    'une archive, sans édition individuelle — plus rapide.';
+    'régénération, détail des remplacements), plus complet mais plus lent.<br>' +
+    '<strong>Mode rapide ZIP</strong> : tous les documents anonymisés d’un coup dans ' +
+    'une archive, sans édition individuelle, plus rapide.';
 }
 
 // Setup restore hero drop
@@ -629,7 +629,7 @@ function renderManualTerms() {
     }));
   const n = state.manualTerms.length;
   $('#manual-id-title').textContent = n
-    ? `Identification manuelle (${n})`
+    ? `Identification manuelle · ${n}`
     : 'Identification manuelle';
 }
 
@@ -708,6 +708,7 @@ async function anonymizeFile(file, extraTerms) {
     replacements: extractReplacements(res.mapping),
     forgottenTerms: (extraTerms || []).slice(),
     docVersion: 1,
+    downloaded: false,
   };
 }
 
@@ -760,7 +761,7 @@ function renderDocNav() {
   show(nav);
   const sel = $('#doc-select');
   sel.innerHTML = state.docs.map((d, i) =>
-    `<option value="${i}">${esc(`${i + 1}/${state.docs.length} — ${d.fileName}`)}</option>`
+    `<option value="${i}">${esc(`${i + 1}/${state.docs.length} · ${d.fileName}`)}</option>`
   ).join('');
   sel.value = String(state.docIndex);
   $('#doc-prev').disabled = state.docIndex === 0;
@@ -784,6 +785,10 @@ function renderCurrentDoc() {
   if (!doc) return;
   renderDocNav();
 
+  // The regeneration banner is transient: only the regenerate handler re-shows
+  // it, so every (re)render starts by hiding it.
+  $('#regen-success').style.display = 'none';
+
   // Per-file failure state.
   if (doc.error) {
     $('#version-badge').style.display = 'none';
@@ -800,6 +805,20 @@ function renderCurrentDoc() {
   $('#btn-download-mapping').disabled = false;
   $('#version-badge').style.display = '';
   $('#version-badge').textContent = `V${doc.docVersion}`;
+
+  // Download button reflects whether the *current* version has been saved yet.
+  // Until the user downloads it, the button is a pulsing call-to-action and
+  // carries the version number so it's obvious which version it produces. Once
+  // downloaded, it switches to a calm "déjà récupéré" state (still clickable).
+  const dlBtn = $('#btn-download-anon');
+  const vLabel = doc.docVersion > 1 ? ` la V${doc.docVersion}` : ' le document';
+  if (doc.downloaded) {
+    dlBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px"><path d="M20 6L9 17l-5-5"/></svg>V${doc.docVersion} téléchargée`;
+    dlBtn.classList.remove('btn-attention');
+  } else {
+    dlBtn.textContent = `Télécharger${vLabel}`;
+    dlBtn.classList.add('btn-attention');
+  }
 
   const n = doc.replacements.length;
   $('#result-summary').textContent = n > 0
@@ -886,8 +905,17 @@ $('#btn-regenerate').addEventListener('click', async () => {
   try {
     const updated = await anonymizeFile(doc.file, doc.forgottenTerms);
     updated.docVersion = doc.docVersion + 1;
+    updated.downloaded = false;  // new version => must be re-downloaded
     state.docs[state.docIndex] = updated;
     renderCurrentDoc();
+
+    // Make the success explicit and point the user at the (now pulsing)
+    // download button — the discreet V-badge alone was easy to miss.
+    const n = updated.replacements.length;
+    $('#regen-success-text').textContent =
+      `Version ${updated.docVersion} générée · ${n} terme${n > 1 ? 's' : ''} masqué${n > 1 ? 's' : ''}. `
+      + `Cliquez sur « Télécharger la V${updated.docVersion} » pour récupérer cette nouvelle version.`;
+    $('#regen-success').style.display = '';
   } catch (e) {
     alert(`Erreur: ${e.message}`);
   } finally {
@@ -897,7 +925,12 @@ $('#btn-regenerate').addEventListener('click', async () => {
 
 $('#btn-download-anon').addEventListener('click', () => {
   const doc = currentDoc();
-  if (doc && doc.anonFileId) downloadFile(doc.anonFileId, doc.anonFilename);
+  if (doc && doc.anonFileId) {
+    downloadFile(doc.anonFileId, doc.anonFilename);
+    doc.downloaded = true;
+    $('#regen-success').style.display = 'none';
+    renderCurrentDoc();
+  }
 });
 $('#btn-download-mapping').addEventListener('click', () => {
   const doc = currentDoc();
@@ -1014,7 +1047,7 @@ function _formatBytes(n) {
 }
 
 function _showBatchLoadingOverlay(total) {
-  showLoading(`Anonymisation du lot — 0 / ${total}`);
+  showLoading(`Anonymisation du lot : 0 / ${total}`);
   show('#loading-batch-progress');
   $('#loading-batch-bar').style.width = '0%';
   $('#loading-batch-text').textContent = 'Préparation…';
@@ -1022,7 +1055,7 @@ function _showBatchLoadingOverlay(total) {
 
 function _updateBatchLoadingOverlay(done, total, currentFile) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  $('#loading-text').textContent = `Anonymisation du lot — ${done} / ${total}`;
+  $('#loading-text').textContent = `Anonymisation du lot : ${done} / ${total}`;
   $('#loading-batch-bar').style.width = `${pct}%`;
   $('#loading-batch-text').textContent = currentFile
     ? `Document en cours : ${currentFile}`
@@ -1134,6 +1167,33 @@ function hideInstallModal() {
   }, 260);
 }
 
+/* ── "Comment ça marche" modal ── */
+function showHowtoModal() {
+  const m = document.getElementById('howto-modal');
+  if (m) m.style.display = 'flex';
+}
+
+function hideHowtoModal() {
+  const m = document.getElementById('howto-modal');
+  if (!m || m.style.display === 'none') return;
+  m.classList.add('howto-modal--closing');
+  setTimeout(() => {
+    m.style.display = 'none';
+    m.classList.remove('howto-modal--closing');
+  }, 220);
+}
+
+document.getElementById('btn-howto')?.addEventListener('click', showHowtoModal);
+document.getElementById('howto-close')?.addEventListener('click', hideHowtoModal);
+// Click on the backdrop (outside the card) closes the modal.
+document.getElementById('howto-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'howto-modal') hideHowtoModal();
+});
+// Escape key closes it too.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideHowtoModal();
+});
+
 async function fetchHealth() {
   try {
     const res = await fetch('/api/health');
@@ -1145,10 +1205,10 @@ async function fetchHealth() {
 
 async function pollUntilReady() {
   setInstallState('installing', {
-    title: 'Installation en cours…',
+    title: localStorage.getItem(MODEL_INSTALLED_FLAG) ? 'Chargement…' : 'Téléchargement…',
     text: localStorage.getItem(MODEL_INSTALLED_FLAG)
-      ? 'Chargement du modèle d\'anonymisation…'
-      : 'Téléchargement du modèle (~400 Mo). Selon votre connexion, cela peut prendre quelques minutes.',
+      ? 'Chargement du modèle CamemBERT en mémoire…'
+      : 'Téléchargement de CamemBERT depuis Hugging Face (~400 Mo). Selon votre connexion, cela peut prendre quelques minutes.',
   });
   while (true) {
     const data = await fetchHealth();
@@ -1164,7 +1224,7 @@ async function pollUntilReady() {
       localStorage.setItem(MODEL_INSTALLED_FLAG, '1');
       setInstallState('ready', {
         title: 'Modèle prêt',
-        text: 'L\'anonymiseur est prêt à l\'emploi.',
+        text: 'CamemBERT est chargé. L\'anonymiseur est prêt.',
       });
       setTimeout(hideInstallModal, 1100);
       return;
@@ -1208,9 +1268,9 @@ async function initModelGate() {
   } else {
     // First ever launch → ask for consent before the ~400 Mo download.
     setInstallState('idle', {
-      title: 'Préparer l\'anonymiseur',
-      text: 'Au premier lancement, ClearDeck télécharge le modèle d\'IA d\'anonymisation (~400 Mo, une seule fois). Tout reste en local sur votre machine.',
-      btn: 'Lancer l\'installation',
+      title: 'Charger le modèle d\'IA',
+      text: 'ClearDeck utilise CamemBERT, un modèle d\'IA de reconnaissance d\'entités en français, téléchargé depuis Hugging Face (~400 Mo, une seule fois). Tout reste en local sur votre machine.',
+      btn: 'Charger le modèle',
     });
   }
 }
