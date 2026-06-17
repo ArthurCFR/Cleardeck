@@ -57,119 +57,48 @@
 
       <h2 class="howto-title" id="howto-title">Comment fonctionne l'anonymisation</h2>
       <p class="howto-lead">
-        ClearDeck repère les informations sensibles avec un modèle d'intelligence
-        artificielle qui s'exécute <strong>entièrement sur votre machine</strong>.
+        ClearDeck masque les informations sensibles avec un modèle d'IA qui
+        s'exécute <strong>entièrement sur votre machine</strong>. Aucun document
+        ne part sur internet.
       </p>
 
       <div class="howto-section">
-        <h3>Le modèle d'IA</h3>
+        <h3>Le modèle</h3>
         <p>
-          <strong>CamemBERT-NER</strong> (<code>Jean-Baptiste/camembert-ner</code>),
-          basé sur CamemBERT, l'architecture <em>RoBERTa</em> entraînée pour le
-          français. Environ <strong>110 millions de paramètres</strong> (~400 Mo),
-          spécialisé dans la <em>reconnaissance d'entités nommées</em> (NER) et
-          affiné sur le corpus WikiNER-fr.
+          <strong>CamemBERT-NER</strong>, ~110 M de paramètres, spécialisé dans la
+          reconnaissance d'entités nommées en français. Il masque
+          <strong>personnes, entreprises, lieux, e-mails</strong> et vos
+          <strong>termes clients</strong>, dans le texte comme dans le nom du
+          fichier.
         </p>
       </div>
 
       <div class="howto-section">
-        <h3>Ce qu'il détecte</h3>
+        <h3>Options à l'anonymisation</h3>
         <ul class="howto-list">
-          <li><strong>Personnes</strong> : noms et prénoms (PER)</li>
-          <li><strong>Entreprises &amp; organisations</strong> (ORG)</li>
-          <li><strong>Lieux</strong> : villes, régions, adresses (LOC)</li>
-          <li><strong>Autres entités</strong> : marques, projets… (MISC)</li>
-          <li><strong>Adresses e-mail</strong> : détectées par règle dédiée</li>
-          <li><strong>Termes clients</strong> : votre liste, en correspondance exacte</li>
+          <li><strong>Masquer toutes les images</strong> : remplace chaque image
+            (logos, captures) par un aplat gris. À activer si le document passe
+            dans un outil qui lit les images (vision, Claude Cowork).
+            <em>Irréversible.</em></li>
+          <li><strong>Garder le titre</strong> : conserve le nom d'origine avec un
+            suffixe « _ANO » (pratique pour le Drive). Le contenu reste anonymisé.</li>
         </ul>
       </div>
 
       <div class="howto-section">
-        <h3>Réglé pour protéger (biais « sur-anonymiser »)</h3>
+        <h3>Bon à savoir</h3>
         <p>
-          Le seuil de confiance est volontairement abaissé : mieux vaut masquer un
-          terme inoffensif que laisser fuiter une donnée identifiante. Les
-          candidats moins sûrs vous sont proposés en relecture, et la détection
-          s'applique aussi <strong>au nom du fichier</strong>.
-        </p>
-      </div>
-
-      <div class="howto-section">
-        <h3>Précision (F1 sur WikiNER-fr)</h3>
-        <div class="howto-metrics">
-          <span><b>94,8 %</b> Personnes</span>
-          <span><b>89,6 %</b> Lieux</span>
-          <span><b>81,8 %</b> Organisations</span>
-          <span><b>81,5 %</b> Autres</span>
-        </div>
-        <p class="howto-note">
-          Aucun modèle n'est parfait : certains noms propres rares peuvent
-          échapper à la détection. Ajoutez-les via « Un oubli ? » pour régénérer
-          le document.
+          Le modèle est réglé pour <strong>sur-anonymiser</strong> (mieux vaut un
+          terme inoffensif masqué qu'une fuite). Aucun modèle n'est parfait : si un
+          nom rare est oublié, ajoutez-le via <em>« Un oubli ? »</em> et régénérez.
+          Tout est <strong>réversible</strong> via l'onglet Restaurer, sauf les
+          images masquées.
         </p>
       </div>
 
       <div class="howto-hf">
         <span>modèle téléchargé depuis</span>
         <img src="/static/huggingface.png" alt="Hugging Face">
-      </div>
-    </div>
-  </div>
-
-  <!-- "Pourquoi les logos ne sont pas masqués" — explanation modal -->
-  <div id="logos-modal" class="howto-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="logos-title">
-    <div class="howto-card">
-      <button class="howto-close" id="logos-close" type="button" aria-label="Fermer">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-
-      <h2 class="howto-title" id="logos-title">Pourquoi les logos ne sont pas masqués</h2>
-      <p class="howto-lead">
-        C'est un choix assumé, cohérent avec l'objectif de l'outil :
-        <strong>empêcher qu'une IA ré-identifie le client</strong> à partir du
-        document que vous lui soumettez.
-      </p>
-
-      <div class="howto-section">
-        <h3>Le vrai risque est dans le texte</h3>
-        <p>
-          Les informations identifiantes (noms, entreprises, lieux, e-mails) sont
-          dans le <strong>texte</strong>, c'est exactement ce que ClearDeck
-          masque. C'est le vecteur de fuite dominant quand on confie un document
-          à une IA.
-        </p>
-      </div>
-
-      <div class="howto-section">
-        <h3>Beaucoup d'outils ne lisent que le texte</h3>
-        <p>
-          Quand on donne un .docx ou .pptx à une IA type ChatGPT ou Claude pour
-          le résumer ou l'exploiter, <strong>beaucoup de pipelines en extraient
-          uniquement le texte</strong>. Dans ce cas, les images (donc les logos)
-          ne sont pas analysées et ne fuitent pas.
-        </p>
-      </div>
-
-      <div class="howto-section">
-        <h3>Mais ce n'est pas garanti</h3>
-        <p>
-          C'est <strong>l'outil qui décide</strong> de traiter ou non les images,
-          pas vous. De plus en plus de systèmes appliquent de l'<strong>OCR ou de
-          la vision</strong> sur les documents, parfois sans que vous le
-          demandiez. Dans ce cas un logo (ou du texte affiché dans une image)
-          <strong>peut</strong> être lu.
-        </p>
-      </div>
-
-      <div class="howto-section">
-        <h3>Notre choix, et l'option</h3>
-        <p>
-          Par défaut ClearDeck couvre le risque principal (le texte) sans toucher
-          aux images, pour préserver la lisibilité. <strong>Si le document passe
-          dans un outil de vision / multimodal (type Claude Cowork)</strong>,
-          cochez <em>« Masquer aussi toutes les images »</em> au moment de
-          l'anonymisation : chaque image est alors remplacée par un aplat gris.
-        </p>
       </div>
     </div>
   </div>
@@ -206,15 +135,6 @@
           <span class="info-btn-text">
             <span class="info-btn-title">Info</span>
             <span class="info-btn-sub">Comment ça marche</span>
-          </span>
-        </button>
-        <button class="info-btn" id="btn-logos" type="button" aria-haspopup="dialog">
-          <span class="info-btn-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
-          </span>
-          <span class="info-btn-text">
-            <span class="info-btn-title">Logos</span>
-            <span class="info-btn-sub">Pourquoi non masqués</span>
           </span>
         </button>
       </div>
@@ -506,6 +426,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=23"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>

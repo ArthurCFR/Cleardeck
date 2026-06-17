@@ -1230,8 +1230,6 @@ function hideInfoModal(m) {
 
 document.getElementById('btn-howto')?.addEventListener('click', () => showInfoModal('howto-modal'));
 document.getElementById('howto-close')?.addEventListener('click', () => hideInfoModal(document.getElementById('howto-modal')));
-document.getElementById('btn-logos')?.addEventListener('click', () => showInfoModal('logos-modal'));
-document.getElementById('logos-close')?.addEventListener('click', () => hideInfoModal(document.getElementById('logos-modal')));
 
 // Click on the backdrop (outside the card) closes that modal.
 document.querySelectorAll('.howto-modal').forEach((m) => {
