@@ -944,16 +944,30 @@ function truncateMiddle(str, maxLen) {
   return str.slice(0, half) + '...' + str.slice(-half);
 }
 
-// Trigger a download via a temporary <a>. Works both in a normal browser and
-// inside the pywebview/WebView2 native window, where window.open('_blank')
-// would pop a blank window instead of downloading.
-//
-// IMPORTANT: only set the `download` attribute when we know the real filename.
-// An empty `download=""` makes the browser name the file after the URL
-// (e.g. the download UUID) instead of honouring the server's
-// Content-Disposition (anonymise_...). When no name is given we omit the
-// attribute entirely so the server-provided filename wins.
+// Native window (Edge WebView2) has no built-in download handling, so the
+// browser's <a download> trick silently does nothing. When the pywebview
+// bridge is present we route through it: it fetches the file from the local
+// server and opens a native "Save As" dialog so the user picks the location.
+function _inNativeWindow() {
+  return !!(window.pywebview && window.pywebview.api && window.pywebview.api.save_file);
+}
+
 function triggerDownload(url, filename) {
+  if (_inNativeWindow()) {
+    window.pywebview.api.save_file({ url, filename: filename || '' })
+      .then((res) => {
+        if (res && !res.ok && !res.cancelled) {
+          alert(`Échec de l'enregistrement : ${res.error || 'erreur inconnue'}`);
+        }
+      })
+      .catch((e) => alert(`Échec de l'enregistrement : ${e}`));
+    return;
+  }
+
+  // Browser fallback — temporary <a>. Only set the `download` attribute when we
+  // know the real filename; an empty `download=""` makes the browser name the
+  // file after the URL (the download UUID) instead of honouring the server's
+  // Content-Disposition. When no name is given we omit it so the server wins.
   const a = document.createElement('a');
   a.href = url;
   if (filename) a.download = filename;
@@ -1152,6 +1166,19 @@ function setInstallState(state, { title, text, btn } = {}) {
   if (btn !== undefined) document.getElementById('install-btn').textContent = btn;
 }
 
+// Camembert wedge circumference (2·π·7.25 — see the cb-fill circle in the SVG).
+const CB_CIRCUMFERENCE = 45.55;
+
+// Reflect the real download/load progress (0-100) on both the bar and the
+// camembert wedge.
+function setInstallProgress(pct) {
+  const p = Math.max(0, Math.min(100, Math.round(pct || 0)));
+  document.getElementById('install-progress-fill').style.width = `${p}%`;
+  document.getElementById('install-percent').textContent = `${p} %`;
+  const wedge = document.querySelector('#install-modal .cb-fill');
+  if (wedge) wedge.style.strokeDashoffset = CB_CIRCUMFERENCE * (1 - p / 100);
+}
+
 function showInstallModal() {
   const m = document.getElementById('install-modal');
   if (m) m.style.display = 'flex';
@@ -1220,7 +1247,9 @@ async function pollUntilReady() {
       });
       return;
     }
+    if (data && typeof data.progress === 'number') setInstallProgress(data.progress);
     if (data && data.model_ready) {
+      setInstallProgress(100);
       localStorage.setItem(MODEL_INSTALLED_FLAG, '1');
       setInstallState('ready', {
         title: 'Modèle prêt',
@@ -1229,7 +1258,7 @@ async function pollUntilReady() {
       setTimeout(hideInstallModal, 1100);
       return;
     }
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 800));
   }
 }
 

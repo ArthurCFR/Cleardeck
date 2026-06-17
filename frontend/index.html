@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ClearDeck · Anonymisation de documents</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body>
   <!-- First-launch model install modal -->
@@ -30,6 +30,14 @@
         d'entités en français, téléchargé depuis Hugging Face (~400 Mo, une seule fois).
         Tout reste en local sur votre machine.
       </p>
+
+      <!-- Determinate download/load progress (shown only while installing). -->
+      <div class="install-progress" id="install-progress">
+        <div class="install-progress-track">
+          <div class="install-progress-fill" id="install-progress-fill"></div>
+        </div>
+        <span class="install-percent" id="install-percent">0 %</span>
+      </div>
 
       <button class="btn btn-primary install-btn" id="install-btn">Charger le modèle</button>
 
@@ -392,6 +400,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=18"></script>
+  <script src="/static/app.js?v=20"></script>
 </body>
 </html>

@@ -1740,13 +1740,10 @@ body {
   transform-origin: 50% 50%;
 }
 
-/* While installing: the wedge fills in a continuous loop */
+/* While installing: the wedge is driven by the real download progress (JS sets
+   stroke-dashoffset), no longer an indeterminate loop. */
 .install-card[data-state="installing"] .cb-fill {
-  animation: cb-fill 1.4s linear infinite;
-}
-@keyframes cb-fill {
-  from { stroke-dashoffset: 45.55; }
-  to   { stroke-dashoffset: 0; }
+  transition: stroke-dashoffset 300ms ease;
 }
 
 /* Idle: a gentle breathing wedge so it doesn't look frozen */
@@ -1800,6 +1797,31 @@ body {
 /* Button is only relevant in idle/error states */
 .install-card[data-state="installing"] .install-btn,
 .install-card[data-state="ready"] .install-btn { display: none; }
+
+/* Progress bar — shown only while installing (downloading / loading). */
+.install-progress { display: none; margin-bottom: 22px; }
+.install-card[data-state="installing"] .install-progress { display: block; }
+.install-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.install-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--brand);
+  transition: width 300ms ease;
+}
+.install-percent {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
 
 .install-hf {
   display: flex;

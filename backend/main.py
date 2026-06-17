@@ -23,6 +23,48 @@ _model_error: str | None = None
 _model_installing = False
 _install_lock = threading.Lock()
 
+# Download progress (0-100), polled by the install modal. CamemBERT-NER weighs
+# ~441 Mo on disk; the actual bytes land in the HF cache "blobs/" dir while
+# downloading, so we poll that directory's size against this known total. It is
+# an estimate (capped at 99% until the model is fully loaded), good enough to
+# drive a progress bar without hooking into huggingface_hub's internals.
+_MODEL_TOTAL_BYTES = 441_000_000
+_MODEL_REPO_DIR = "models--Jean-Baptiste--camembert-ner"
+_model_progress = 0.0
+
+
+def _model_blobs_dir() -> Path:
+    """Locate the HF cache 'blobs' dir for CamemBERT-NER (download target)."""
+    base = (
+        os.environ.get("HF_HOME")
+        or os.environ.get("TRANSFORMERS_CACHE")
+        or str(Path.home() / ".cache" / "huggingface")
+    )
+    return Path(base) / "hub" / _MODEL_REPO_DIR / "blobs"
+
+
+def _dir_size(path: Path) -> int:
+    """Total size in bytes of all files under path (0 if absent)."""
+    total = 0
+    try:
+        for entry in path.iterdir():
+            try:
+                total += entry.stat().st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return total
+
+
+def _poll_progress(stop: threading.Event) -> None:
+    """While downloading, reflect the blobs/ size as a 0-99% progress value."""
+    global _model_progress
+    while not stop.is_set():
+        size = _dir_size(_model_blobs_dir())
+        _model_progress = min(99.0, size / _MODEL_TOTAL_BYTES * 100)
+        stop.wait(0.4)
+
 # Load .env file
 _root = Path(__file__).resolve().parent.parent
 load_dotenv(_root / ".env")
@@ -56,14 +98,18 @@ def _load_model() -> None:
     """Download / load CamemBERT-NER. On first ever launch this downloads
     ~400 Mo; afterwards it just loads the cached model into memory. Triggered
     by POST /api/install-model; progress is exposed via /api/health."""
-    global _model_error, _model_installing
+    global _model_error, _model_installing, _model_progress
+    stop = threading.Event()
+    threading.Thread(target=_poll_progress, args=(stop,), daemon=True).start()
     try:
         from .engine.ai_detector import get_pipeline
         get_pipeline()
+        _model_progress = 100.0
         _model_ready.set()
     except Exception as e:  # pragma: no cover — surfaced via /api/health
         _model_error = str(e)
     finally:
+        stop.set()
         _model_installing = False
 
 
@@ -99,6 +145,7 @@ async def health() -> dict:
         "model_ready": _model_ready.is_set(),
         "model_error": _model_error,
         "installing": _model_installing,
+        "progress": round(100.0 if _model_ready.is_set() else _model_progress),
     }
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -188,6 +189,55 @@ def _open_url(url: str) -> bool:
     return False
 
 
+class _JsApi:
+    """Bridge exposed to the frontend as ``window.pywebview.api``.
+
+    The Edge WebView2 control has no built-in download UI, so the browser's
+    ``<a download>`` trick silently no-ops inside the native window — clicking
+    a download button did nothing. The frontend instead calls ``save_file``,
+    which fetches the file from the local server and writes it to a location
+    the user picks via a native "Save As" dialog.
+    """
+
+    def save_file(self, params: dict) -> dict:
+        import urllib.request
+        import webview
+
+        params = params or {}
+        url_path = params.get("url") or ""
+        suggested = params.get("filename") or ""
+        if not url_path:
+            return {"ok": False, "error": "missing url"}
+
+        full_url = f"{URL}{url_path}" if url_path.startswith("/") else url_path
+        try:
+            with urllib.request.urlopen(full_url) as resp:
+                data = resp.read()
+                if not suggested:
+                    cd = resp.headers.get("Content-Disposition", "") or ""
+                    m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd)
+                    if m:
+                        suggested = m.group(1)
+
+            window = webview.windows[0]
+            result = window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=suggested or "cleardeck_download",
+            )
+            if not result:
+                return {"ok": False, "cancelled": True}
+
+            # create_file_dialog returns a str on some backends, a tuple on others.
+            path = result if isinstance(result, str) else result[0]
+            with open(path, "wb") as f:
+                f.write(data)
+            logging.info("Saved download to %s", path)
+            return {"ok": True, "path": str(path)}
+        except Exception as e:  # pragma: no cover — surfaced to the user via JS
+            logging.exception("save_file failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+
 def _run_server() -> None:
     """Run uvicorn in a background thread (daemon, dies with the process)."""
     import uvicorn
@@ -253,6 +303,7 @@ def main() -> int:
             width=1280,
             height=860,
             min_size=(960, 640),
+            js_api=_JsApi(),
         )
         # Blocking call — returns when the user closes the window, after
         # which main() returns and the daemon server thread is torn down.

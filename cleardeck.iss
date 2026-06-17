@@ -41,6 +41,8 @@ SolidCompression=yes
 OutputDir=dist
 OutputBaseFilename=CleardeckSetup
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; Icon of the installer itself (CleardeckSetup.exe).
+SetupIconFile=cleardeck.ico
 WizardStyle=modern
 
 ; Languages
@@ -55,11 +57,14 @@ Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; GroupDesc
 [Files]
 ; PyInstaller output — copy everything under dist\Cleardeck\ into {app}.
 Source: "dist\Cleardeck\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Standalone icon so shortcuts can reference it explicitly (more reliable than
+; relying on the icon embedded in the exe).
+Source: "cleardeck.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\cleardeck.ico"
 Name: "{group}\Désinstaller {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\cleardeck.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Lancer {#MyAppName}"; Flags: nowait postinstall skipifsilent
