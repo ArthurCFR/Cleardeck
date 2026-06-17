@@ -200,6 +200,7 @@ class _JsApi:
     """
 
     def save_file(self, params: dict) -> dict:
+        import os
         import urllib.request
         import webview
 
@@ -219,16 +220,28 @@ class _JsApi:
                     if m:
                         suggested = m.group(1)
 
+            suggested = suggested or "cleardeck_download"
+            # The expected extension (.pptx/.docx/.json/.zip…) we must preserve.
+            want_ext = os.path.splitext(suggested)[1]
+
             window = webview.windows[0]
-            result = window.create_file_dialog(
-                webview.SAVE_DIALOG,
-                save_filename=suggested or "cleardeck_download",
-            )
+            kwargs = {"save_filename": suggested}
+            # A file-type filter makes the dialog show "(*.pptx)" and append the
+            # extension automatically.
+            if want_ext:
+                label = want_ext.lstrip(".").upper()
+                kwargs["file_types"] = (f"{label} (*{want_ext})", "Tous les fichiers (*.*)")
+            result = window.create_file_dialog(webview.SAVE_DIALOG, **kwargs)
             if not result:
                 return {"ok": False, "cancelled": True}
 
             # create_file_dialog returns a str on some backends, a tuple on others.
             path = result if isinstance(result, str) else result[0]
+            # Enforce the original extension: if the user edited the name in the
+            # dialog and dropped/changed it (e.g. typed "V2"), the file would be
+            # saved without ".pptx" and become unopenable. Re-append it.
+            if want_ext and os.path.splitext(path)[1].lower() != want_ext.lower():
+                path = path + want_ext
             with open(path, "wb") as f:
                 f.write(data)
             logging.info("Saved download to %s", path)
