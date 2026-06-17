@@ -8,7 +8,7 @@ import uuid
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from ..engine.deanonymizer import deanonymize
+from ..engine.deanonymizer import deanonymize, deanonymize_filename
 
 router = APIRouter(prefix="/api", tags=["deanonymize"])
 
@@ -43,11 +43,10 @@ async def deanonymize_endpoint(
 
     result_bytes = deanonymize(file_bytes, file_type, mapping)
 
-    # Store for download
+    # Store for download. Restore placeholders in the title too (the body is
+    # already de-anonymised above) and prefix with "restaure_".
     result_id = str(uuid.uuid4())
-    restored_name = filename.replace("anonymise_", "restaure_")
-    if not restored_name.startswith("restaure_"):
-        restored_name = f"restaure_{filename}"
+    restored_name = f"restaure_{deanonymize_filename(filename, mapping)}"
 
     _file_store[result_id] = (result_bytes, restored_name, content_type)
 

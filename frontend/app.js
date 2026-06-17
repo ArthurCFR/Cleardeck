@@ -689,12 +689,28 @@ function buildManualEntities() {
   return { autres: state.manualTerms.slice() };
 }
 
+// Whether the "mask all images" box is checked. Read at call time so the
+// choice carries over to regeneration too (the box keeps its state when hidden).
+function removeAllImagesFlag() {
+  const cb = document.getElementById('opt-remove-images');
+  return cb && cb.checked ? 'true' : 'false';
+}
+
+// Title toggle is checked by default (anonymise the title). Unchecked => keep
+// the original name with an "_ANO" suffix.
+function anonymizeTitleFlag() {
+  const cb = document.getElementById('opt-anon-title');
+  return cb && !cb.checked ? 'false' : 'true';
+}
+
 // Anonymize one file and return an independent "doc" result object.
 async function anonymizeFile(file, extraTerms) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('manual_entities', JSON.stringify(buildManualEntities()));
   formData.append('extra_terms', JSON.stringify(extraTerms || []));
+  formData.append('remove_all_images', removeAllImagesFlag());
+  formData.append('anonymize_title', anonymizeTitleFlag());
 
   const res = await api('/api/anonymize', { method: 'POST', body: formData });
   return {
@@ -1002,10 +1018,11 @@ $('#btn-restore').addEventListener('click', async () => {
 
     state.restoreResult = await api('/api/deanonymize', { method: 'POST', body: formData });
 
-    // Add to restore history
+    // Add to restore history. Show the *restored* name (placeholders reversed,
+    // "restaure_" prefix) returned by the server, not the uploaded anon name.
     const ext = fileName.toLowerCase().split('.').pop();
     state.restoreHistory.unshift({
-      fileName,
+      fileName: state.restoreResult.filename || fileName,
       fileType: ext,
       fileId: state.restoreResult.file_id,
     });
@@ -1039,14 +1056,14 @@ function renderRestoreHistory() {
       <div class="anon-history-icon">${item.fileType === 'pptx' ? ICON_PPTX_SMALL : ICON_DOCX_SMALL}</div>
       <div class="anon-history-name" title="${esc(item.fileName)}">${esc(truncateMiddle(item.fileName, 40))}</div>
       <div class="anon-history-actions">
-        <button class="btn btn-primary" onclick="downloadRestored('${item.fileId}')">Telecharger</button>
+        <button class="btn btn-primary" onclick="downloadRestored('${item.fileId}', '${esc(item.fileName)}')">Telecharger</button>
       </div>
     </div>
   `).join('');
 }
 
-function downloadRestored(fileId) {
-  triggerDownload(`/api/download-restored/${fileId}`);
+function downloadRestored(fileId, filename) {
+  triggerDownload(`/api/download-restored/${fileId}`, filename);
 }
 window.downloadRestored = downloadRestored;
 
@@ -1090,6 +1107,8 @@ async function startBatch() {
   const form = new FormData();
   state.anonFiles.forEach(f => form.append('files', f));
   form.append('manual_entities', JSON.stringify(buildManualEntities()));
+  form.append('remove_all_images', removeAllImagesFlag());
+  form.append('anonymize_title', anonymizeTitleFlag());
 
   try {
     const res = await fetch('/api/anonymize-batch', { method: 'POST', body: form });
@@ -1194,14 +1213,13 @@ function hideInstallModal() {
   }, 260);
 }
 
-/* ── "Comment ça marche" modal ── */
-function showHowtoModal() {
-  const m = document.getElementById('howto-modal');
+/* ── Info modals ("Comment ça marche", "Logos") — share .howto-modal ── */
+function showInfoModal(id) {
+  const m = document.getElementById(id);
   if (m) m.style.display = 'flex';
 }
 
-function hideHowtoModal() {
-  const m = document.getElementById('howto-modal');
+function hideInfoModal(m) {
   if (!m || m.style.display === 'none') return;
   m.classList.add('howto-modal--closing');
   setTimeout(() => {
@@ -1210,15 +1228,18 @@ function hideHowtoModal() {
   }, 220);
 }
 
-document.getElementById('btn-howto')?.addEventListener('click', showHowtoModal);
-document.getElementById('howto-close')?.addEventListener('click', hideHowtoModal);
-// Click on the backdrop (outside the card) closes the modal.
-document.getElementById('howto-modal')?.addEventListener('click', (e) => {
-  if (e.target.id === 'howto-modal') hideHowtoModal();
+document.getElementById('btn-howto')?.addEventListener('click', () => showInfoModal('howto-modal'));
+document.getElementById('howto-close')?.addEventListener('click', () => hideInfoModal(document.getElementById('howto-modal')));
+document.getElementById('btn-logos')?.addEventListener('click', () => showInfoModal('logos-modal'));
+document.getElementById('logos-close')?.addEventListener('click', () => hideInfoModal(document.getElementById('logos-modal')));
+
+// Click on the backdrop (outside the card) closes that modal.
+document.querySelectorAll('.howto-modal').forEach((m) => {
+  m.addEventListener('click', (e) => { if (e.target === m) hideInfoModal(m); });
 });
-// Escape key closes it too.
+// Escape closes any open info modal.
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') hideHowtoModal();
+  if (e.key === 'Escape') document.querySelectorAll('.howto-modal').forEach(hideInfoModal);
 });
 
 async function fetchHealth() {

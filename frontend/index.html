@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ClearDeck · Anonymisation de documents</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
   <!-- First-launch model install modal -->
@@ -116,6 +116,64 @@
     </div>
   </div>
 
+  <!-- "Pourquoi les logos ne sont pas masqués" — explanation modal -->
+  <div id="logos-modal" class="howto-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="logos-title">
+    <div class="howto-card">
+      <button class="howto-close" id="logos-close" type="button" aria-label="Fermer">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+
+      <h2 class="howto-title" id="logos-title">Pourquoi les logos ne sont pas masqués</h2>
+      <p class="howto-lead">
+        C'est un choix assumé, cohérent avec l'objectif de l'outil :
+        <strong>empêcher qu'une IA ré-identifie le client</strong> à partir du
+        document que vous lui soumettez.
+      </p>
+
+      <div class="howto-section">
+        <h3>Le vrai risque est dans le texte</h3>
+        <p>
+          Les informations identifiantes (noms, entreprises, lieux, e-mails) sont
+          dans le <strong>texte</strong>, c'est exactement ce que ClearDeck
+          masque. C'est le vecteur de fuite dominant quand on confie un document
+          à une IA.
+        </p>
+      </div>
+
+      <div class="howto-section">
+        <h3>Beaucoup d'outils ne lisent que le texte</h3>
+        <p>
+          Quand on donne un .docx ou .pptx à une IA type ChatGPT ou Claude pour
+          le résumer ou l'exploiter, <strong>beaucoup de pipelines en extraient
+          uniquement le texte</strong>. Dans ce cas, les images (donc les logos)
+          ne sont pas analysées et ne fuitent pas.
+        </p>
+      </div>
+
+      <div class="howto-section">
+        <h3>Mais ce n'est pas garanti</h3>
+        <p>
+          C'est <strong>l'outil qui décide</strong> de traiter ou non les images,
+          pas vous. De plus en plus de systèmes appliquent de l'<strong>OCR ou de
+          la vision</strong> sur les documents, parfois sans que vous le
+          demandiez. Dans ce cas un logo (ou du texte affiché dans une image)
+          <strong>peut</strong> être lu.
+        </p>
+      </div>
+
+      <div class="howto-section">
+        <h3>Notre choix, et l'option</h3>
+        <p>
+          Par défaut ClearDeck couvre le risque principal (le texte) sans toucher
+          aux images, pour préserver la lisibilité. <strong>Si le document passe
+          dans un outil de vision / multimodal (type Claude Cowork)</strong>,
+          cochez <em>« Masquer aussi toutes les images »</em> au moment de
+          l'anonymisation : chaque image est alors remplacée par un aplat gris.
+        </p>
+      </div>
+    </div>
+  </div>
+
   <div class="app">
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -138,7 +196,9 @@
           <span>Restaurer</span>
         </button>
       </nav>
-      <div class="sidebar-footer">
+
+      <!-- Info buttons, vertically centred in the sidebar. -->
+      <div class="sidebar-info">
         <button class="info-btn" id="btn-howto" type="button" aria-haspopup="dialog">
           <span class="info-btn-icon">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -148,6 +208,18 @@
             <span class="info-btn-sub">Comment ça marche</span>
           </span>
         </button>
+        <button class="info-btn" id="btn-logos" type="button" aria-haspopup="dialog">
+          <span class="info-btn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+          </span>
+          <span class="info-btn-text">
+            <span class="info-btn-title">Logos</span>
+            <span class="info-btn-sub">Pourquoi non masqués</span>
+          </span>
+        </button>
+      </div>
+
+      <div class="sidebar-footer">
         <p class="security-note">100 % local · aucun document ne quitte votre machine</p>
       </div>
     </aside>
@@ -214,6 +286,40 @@
         <div id="anon-file-list" class="anon-file-list" style="display:none;"></div>
 
         <div class="anon-actions" id="anon-preview-actions" style="display:none;">
+          <!-- Toggle: anonymise the document title (on by default). -->
+          <label class="anon-option" for="opt-anon-title">
+            <input type="checkbox" id="opt-anon-title" checked>
+            <span class="anon-option-text">
+              <span class="anon-option-title">Anonymiser le titre du document</span>
+              <span class="anon-option-desc">
+                Décochez pour <strong>garder le nom d'origine</strong> (utile pour la
+                reconnaissance dans le Drive ou la capitalisation). Un suffixe
+                « <strong>_ANO</strong> » est alors ajouté avant l'extension.
+              </span>
+            </span>
+          </label>
+
+          <!-- Opt-in: systematically grey out every image. -->
+          <label class="image-scrub-option" for="opt-remove-images">
+            <input type="checkbox" id="opt-remove-images">
+            <span class="image-scrub-text">
+              <span class="image-scrub-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+                Masquer aussi toutes les images (logos, captures…)
+              </span>
+              <span class="image-scrub-desc">
+                Remplace <strong>chaque</strong> image par un aplat gris, partout : contenu,
+                slides, en-têtes et masque. À cocher si le document passe dans un outil qui
+                <strong>lit les images</strong> (vision, Claude Cowork). Sinon, le texte seul
+                est anonymisé et les logos restent.
+              </span>
+              <span class="image-scrub-warn">
+                Action <strong>irréversible</strong> : non restaurable via l'onglet Restaurer,
+                et concerne aussi les schémas / captures de contenu, pas seulement les logos.
+              </span>
+            </span>
+          </label>
+
           <div class="anon-actions-buttons">
             <button class="btn btn-primary" id="btn-anonymize" disabled>Anonymiser</button>
             <button class="btn btn-secondary" id="btn-anonymize-zip" style="display:none;">Mode rapide ZIP</button>
@@ -400,6 +506,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=20"></script>
+  <script src="/static/app.js?v=23"></script>
 </body>
 </html>

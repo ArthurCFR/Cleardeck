@@ -115,10 +115,21 @@ body {
 
 .nav {
   padding: 20px 12px;
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* Info buttons block — takes the remaining height and centres its buttons
+   vertically between the nav and the footer. */
+.sidebar-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
 }
 
 .nav-btn {
@@ -410,7 +421,10 @@ body {
 .hero-drop {
   position: relative;
   border: 2px dashed var(--border);
-  min-height: 50vh;
+  /* Fill the available height of the main area (which is min-height:100vh with
+     56px/80px vertical padding, minus the slim selector above) so the
+     flex-centered content sits in the true vertical centre of the screen. */
+  min-height: calc(100vh - 210px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1511,6 +1525,9 @@ body {
 /* ───────────────────── Empty state ───────────────────── */
 
 .empty-state {
+  /* Span every column so the centered text is centered on the whole page,
+     not within a single 260px grid cell. */
+  grid-column: 1 / -1;
   text-align: center;
   padding: 72px 24px;
   color: var(--text-muted);
@@ -1912,6 +1929,89 @@ body {
   gap: 10px;
 }
 
+/* Neutral option row (e.g. "anonymise the title"). */
+.anon-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.anon-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--brand);
+}
+.anon-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.anon-option-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.anon-option-desc {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Opt-in "mask all images" box — deliberately prominent. */
+.image-scrub-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  background: var(--orange-bg);
+  border: 1px solid var(--orange-border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.image-scrub-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--brand);
+}
+.image-scrub-text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.image-scrub-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.image-scrub-desc {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.image-scrub-warn {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #8a5a00;
+}
+
 .anon-actions-hint {
   margin-top: 12px;
   font-size: 0.78rem;
@@ -2281,7 +2381,6 @@ body {
   gap: 11px;
   width: 100%;
   padding: 10px 12px;
-  margin-bottom: 16px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);

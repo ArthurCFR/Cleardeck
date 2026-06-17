@@ -17,7 +17,7 @@ from fastapi.responses import Response
 
 from ..config import get_projects_dir
 from ..engine.anonymizer import preview, anonymize
-from ..engine.image_handler import preview_images, apply_image_anonymization
+from ..engine.image_handler import preview_images, apply_image_anonymization, scrub_all_images
 
 router = APIRouter(prefix="/api", tags=["anonymize"])
 
@@ -52,6 +52,16 @@ def _safe_download_name(name: str) -> str:
     # Collapse runs of whitespace and trim trailing dots/spaces.
     name = re.sub(r"\s+", " ", name).strip().rstrip(".")
     return name or "document"
+
+
+def _intact_title_name(filename: str) -> str:
+    """Keep the original title, only appending an "_ANO" suffix before the
+    extension (e.g. for Drive recognition / capitalisation work where the name
+    can stay readable). No "anonymise_" prefix, no placeholder substitution."""
+    stem, dot, ext = filename.rpartition(".")
+    if dot:
+        return _safe_download_name(f"{stem}_ANO.{ext}")
+    return _safe_download_name(f"{filename}_ANO")
 
 
 def _merge_entity_dicts(base: dict | None, extra: dict | None) -> dict | None:
@@ -141,6 +151,8 @@ async def anonymize_endpoint(
     project_id: str = Form(default=""),
     manual_entities: str = Form(default=""),
     extra_terms: str = Form(default="[]"),
+    remove_all_images: str = Form(default="false"),
+    anonymize_title: str = Form(default="true"),
 ):
     """Anonymize a file and return download IDs.
 
@@ -190,6 +202,12 @@ async def anonymize_endpoint(
         auto_confirm_all=True,
     )
 
+    # Step 3 (opt-in): systematically grey out EVERY embedded image. Covers
+    # content, masters, layouts, headers/footers and backgrounds in one pass.
+    # Irreversible — not restorable via the de-anonymise tab.
+    if remove_all_images.lower() in ("true", "1", "yes", "on"):
+        result_bytes = scrub_all_images(result_bytes)
+
     # Store results for download
     anon_id = str(uuid.uuid4())
     mapping_id = str(uuid.uuid4())
@@ -200,7 +218,10 @@ async def anonymize_endpoint(
         else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
 
-    anon_filename = _safe_download_name(f"anonymise_{anon_name}")
+    if anonymize_title.lower() in ("true", "1", "yes", "on"):
+        anon_filename = _safe_download_name(f"anonymise_{anon_name}")
+    else:
+        anon_filename = _intact_title_name(filename)
     mapping_filename = _safe_download_name(f"mapping_{filename.rsplit('.', 1)[0]}.json")
     _file_store[anon_id] = (result_bytes, anon_filename, content_type)
     _file_store[mapping_id] = (
@@ -253,6 +274,8 @@ def _run_batch_job(
     project_id: str | None,
     project_entities: dict[str, list[str]] | None,
     logo_hashes: list[str],
+    remove_all_images: bool = False,
+    anonymize_title: bool = True,
 ) -> None:
     """Worker: anonymize each file and pack everything into an in-memory ZIP."""
     job = _batch_jobs[job_id]
@@ -287,8 +310,16 @@ def _run_batch_job(
                         auto_confirm_all=True,
                     )
 
+                    if remove_all_images:
+                        result_bytes = scrub_all_images(result_bytes)
+
                     stem = filename.rsplit(".", 1)[0]
-                    zf.writestr(_safe_download_name(f"anonymise_{anon_name}"), result_bytes)
+                    out_name = (
+                        _safe_download_name(f"anonymise_{anon_name}")
+                        if anonymize_title
+                        else _intact_title_name(filename)
+                    )
+                    zf.writestr(out_name, result_bytes)
                     zf.writestr(
                         _safe_download_name(f"mapping_{stem}.json"),
                         json.dumps(mapping, ensure_ascii=False, indent=2),
@@ -311,6 +342,8 @@ async def anonymize_batch_endpoint(
     files: List[UploadFile] = File(...),
     project_id: str = Form(default=""),
     manual_entities: str = Form(default=""),
+    remove_all_images: str = Form(default="false"),
+    anonymize_title: str = Form(default="true"),
 ):
     """Start a batch anonymization job. Returns a job_id for polling.
 
@@ -357,7 +390,9 @@ async def anonymize_batch_endpoint(
 
     threading.Thread(
         target=_run_batch_job,
-        args=(job_id, file_data, project_id or None, entities, logo_hashes),
+        args=(job_id, file_data, project_id or None, entities, logo_hashes,
+              remove_all_images.lower() in ("true", "1", "yes", "on"),
+              anonymize_title.lower() in ("true", "1", "yes", "on")),
         daemon=True,
     ).start()
 

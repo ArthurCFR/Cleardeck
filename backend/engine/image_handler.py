@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import base64
+import zipfile
 from dataclasses import dataclass
 
 import imagehash
@@ -455,3 +456,84 @@ def apply_image_anonymization(
         return buf.getvalue()
 
     return file_bytes
+
+
+# ============================================================
+# Systematic image scrubbing (remove ALL images, everywhere)
+# ============================================================
+
+# Raster formats Pillow can both read and write — replaced by a grey image of
+# the SAME pixel dimensions and SAME format, so the placeholder is valid and the
+# aspect ratio is preserved.
+_RASTER_FORMATS = {
+    "png": "PNG", "jpg": "JPEG", "jpeg": "JPEG",
+    "gif": "GIF", "bmp": "BMP", "tiff": "TIFF", "tif": "TIFF",
+}
+# Vector / exotic formats Pillow cannot regenerate. svg is rewritten as a blank
+# svg; emf/wmf/wdp fall back to a grey PNG blob (the image is gone — the goal —
+# even if a strict renderer shows an empty frame for those).
+_OTHER_IMAGE_EXTS = {"svg", "emf", "wmf", "wdp", "ico"}
+
+_GREY = (220, 220, 220)
+
+
+def _grey_raster(data: bytes, pil_format: str) -> bytes:
+    """A solid-grey image matching the original's pixel size (a solid colour
+    compresses to almost nothing, so this stays light)."""
+    try:
+        width, height = Image.open(io.BytesIO(data)).size
+    except Exception:
+        width, height = 200, 200
+    buf = io.BytesIO()
+    Image.new("RGB", (max(1, width), max(1, height)), _GREY).save(buf, pil_format)
+    return buf.getvalue()
+
+
+def _neutral_media(name: str, data: bytes) -> bytes | None:
+    """Return neutral replacement bytes for a media part, or None to leave it
+    untouched (non-image media such as audio/video)."""
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in _RASTER_FORMATS:
+        return _grey_raster(data, _RASTER_FORMATS[ext])
+    if ext == "svg":
+        return (
+            b'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
+            b'<rect width="100%" height="100%" fill="#DCDCDC"/></svg>'
+        )
+    if ext in _OTHER_IMAGE_EXTS:
+        buf = io.BytesIO()
+        Image.new("RGB", (200, 200), _GREY).save(buf, "PNG")
+        return buf.getvalue()
+    return None  # not an image — leave audio/video/etc. alone
+
+
+# Media folders across the OOXML formats. Every embedded image — in the content,
+# slide masters, layouts, headers/footers, backgrounds or shape fills — lives
+# under one of these, so scrubbing them covers the whole document in one pass.
+_MEDIA_PREFIXES = ("ppt/media/", "word/media/", "xl/media/")
+
+
+def scrub_all_images(file_bytes: bytes) -> bytes:
+    """Replace EVERY embedded image with a grey placeholder of the same size.
+
+    Operates at the OOXML package (zip) level: it never decodes the document
+    structure, so it is format-agnostic (png, jpeg, svg, emf, wdp, …) and
+    inherently reaches every location at once. The shape geometry is untouched,
+    so each placeholder keeps the exact position/size/rotation of the original.
+
+    Irreversible: the original pixels are not stored anywhere.
+    """
+    src = zipfile.ZipFile(io.BytesIO(file_bytes))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            name = item.filename
+            if not name.endswith("/") and any(
+                name.startswith(p) for p in _MEDIA_PREFIXES
+            ):
+                replacement = _neutral_media(name, data)
+                if replacement is not None:
+                    data = replacement
+            zout.writestr(item, data)
+    return out.getvalue()
